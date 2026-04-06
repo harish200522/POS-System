@@ -25,6 +25,7 @@ const productSchema = new mongoose.Schema(
       required: true,
       unique: true,
       trim: true,
+      set: (value) => String(value ?? "").trim(),
       index: true,
     },
     category: {

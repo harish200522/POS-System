@@ -17,6 +17,8 @@ const productPayloadValidators = [
   body("name").optional().trim().isLength({ min: 1, max: 120 }).withMessage("name is required"),
   body("barcode")
     .optional()
+    .isString()
+    .withMessage("barcode must be a string")
     .trim()
     .isLength({ min: 3, max: 64 })
     .withMessage("barcode must be 3-64 characters"),

@@ -997,9 +997,17 @@ textarea:focus-visible {
   width: min(460px, 96vw);
 }
 
+.scanner-modal-card {
+  width: min(680px, 92vw);
+  max-height: min(78vh, 38rem);
+  min-height: auto;
+  display: flex;
+  flex-direction: column;
+}
+
 .scanner-box {
   width: 100%;
-  min-height: 18rem;
+  min-height: clamp(15rem, 46vh, 21rem);
   border-radius: 0.9rem;
   overflow: hidden;
   border: 1px dashed rgba(148, 163, 184, 0.55);
@@ -1217,6 +1225,11 @@ textarea:focus-visible {
     align-items: flex-end;
   }
 
+  #scanner-modal.modal {
+    padding: 0.75rem;
+    align-items: center;
+  }
+
   .modal-card {
     width: 100vw;
     max-width: none;
@@ -1228,12 +1241,18 @@ textarea:focus-visible {
   }
 
   .scanner-modal-card {
+    width: min(94vw, 34rem);
+    max-height: min(76dvh, 34rem);
+    min-height: auto;
+    border-radius: 1rem;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    padding: 0.9rem;
     display: flex;
     flex-direction: column;
   }
 
   .scanner-box {
-    min-height: 50dvh;
+    min-height: clamp(14rem, 44dvh, 19rem);
   }
 
   .bill-modal-card,

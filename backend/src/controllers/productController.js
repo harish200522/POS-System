@@ -7,14 +7,19 @@ function parseNumber(value, fallback = 0) {
   return Number.isFinite(numericValue) ? numericValue : fallback;
 }
 
+function normalizeBarcodeValue(value) {
+  return String(value ?? "").trim();
+}
+
 function escapeRegex(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export const addProduct = asyncHandler(async (req, res) => {
   const { name, price, stock, barcode, category } = req.body;
+  const normalizedBarcode = normalizeBarcodeValue(barcode);
 
-  if (!name || !barcode) {
+  if (!name || !normalizedBarcode) {
     throw new ApiError(400, "name and barcode are required");
   }
 
@@ -29,7 +34,7 @@ export const addProduct = asyncHandler(async (req, res) => {
     throw new ApiError(400, "stock must be a valid non-negative number");
   }
 
-  const existingProduct = await Product.findOne({ barcode: barcode.trim() });
+  const existingProduct = await Product.findOne({ barcode: normalizedBarcode });
   if (existingProduct && existingProduct.isActive) {
     throw new ApiError(409, "A product with this barcode already exists");
   }
@@ -38,6 +43,7 @@ export const addProduct = asyncHandler(async (req, res) => {
     existingProduct.name = name;
     existingProduct.price = normalizedPrice;
     existingProduct.stock = normalizedStock;
+    existingProduct.barcode = normalizedBarcode;
     existingProduct.category = category || existingProduct.category;
     existingProduct.isActive = true;
     await existingProduct.save();
@@ -53,7 +59,7 @@ export const addProduct = asyncHandler(async (req, res) => {
     name,
     price: normalizedPrice,
     stock: normalizedStock,
-    barcode,
+    barcode: normalizedBarcode,
     category,
   });
 
@@ -82,7 +88,7 @@ export const getProducts = asyncHandler(async (req, res) => {
   }
 
   if (barcode) {
-    query.barcode = String(barcode).trim();
+    query.barcode = normalizeBarcodeValue(barcode);
   }
 
   if (search) {
@@ -116,7 +122,7 @@ export const getProducts = asyncHandler(async (req, res) => {
 });
 
 export const getProductByBarcode = asyncHandler(async (req, res) => {
-  const barcode = String(req.params.barcode || "").trim();
+  const barcode = normalizeBarcodeValue(req.params.barcode);
   if (!barcode) {
     throw new ApiError(400, "barcode parameter is required");
   }
@@ -143,10 +149,18 @@ export const updateProduct = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Product not found");
   }
 
-  if (barcode && barcode !== product.barcode) {
-    const exists = await Product.findOne({ barcode, _id: { $ne: id } });
-    if (exists) {
-      throw new ApiError(409, "Another product already uses this barcode");
+  let normalizedBarcode = null;
+  if (barcode !== undefined) {
+    normalizedBarcode = normalizeBarcodeValue(barcode);
+    if (!normalizedBarcode) {
+      throw new ApiError(400, "barcode cannot be empty");
+    }
+
+    if (normalizedBarcode !== product.barcode) {
+      const exists = await Product.findOne({ barcode: normalizedBarcode, _id: { $ne: id } });
+      if (exists) {
+        throw new ApiError(409, "Another product already uses this barcode");
+      }
     }
   }
 
@@ -167,7 +181,7 @@ export const updateProduct = asyncHandler(async (req, res) => {
     product.stock = normalizedStock;
   }
 
-  if (barcode !== undefined) product.barcode = String(barcode).trim();
+  if (normalizedBarcode !== null) product.barcode = normalizedBarcode;
   if (category !== undefined) product.category = category;
   if (isActive !== undefined) product.isActive = Boolean(isActive);
 

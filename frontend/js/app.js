@@ -166,7 +166,15 @@ let scannerDetectedHandler = null;
 let scannerNoResultTimeoutId = null;
 let upiModalHideTimeoutId = null;
 let upiQrCodeInstance = null;
+let scannerLastDetectedCode = "";
+let scannerLastDetectedAt = 0;
+let scannerDetectionInFlight = false;
 const SCANNER_AUTO_FALLBACK_MS = 12000;
+const SCANNER_DETECTION_COOLDOWN_MS = 1200;
+const MIN_PARTIAL_BARCODE_LENGTH = 6;
+const SCANNER_DEBUG_ENABLED =
+  ["localhost", "127.0.0.1"].includes(window.location.hostname) ||
+  window.localStorage.getItem("pos_debug_scanner") === "1";
 const UPI_CONFIG = {
   upiId: "hri41468@oksbi",
   shopName: "CounterCraft POS",
@@ -1240,11 +1248,39 @@ function startScannerNoResultTimer() {
   }, SCANNER_AUTO_FALLBACK_MS);
 }
 
+function logScannerDebug(message, details = null) {
+  if (!SCANNER_DEBUG_ENABLED) {
+    return;
+  }
+
+  if (details) {
+    console.info(`[scanner] ${message}`, details);
+    return;
+  }
+
+  console.info(`[scanner] ${message}`);
+}
+
 function normalizeBarcode(value) {
   return String(value || "")
     .trim()
     .replace(/[^a-zA-Z0-9]/g, "")
     .toUpperCase();
+}
+
+function normalizeProductEntry(product = {}) {
+  return {
+    ...product,
+    barcode: String(product.barcode || "").trim(),
+  };
+}
+
+function normalizeProductEntries(products) {
+  if (!Array.isArray(products)) {
+    return [];
+  }
+
+  return products.map((product) => normalizeProductEntry(product));
 }
 
 function getBarcodeCandidates(value) {
@@ -1263,6 +1299,67 @@ function getBarcodeCandidates(value) {
   }
 
   return Array.from(candidates);
+}
+
+function getBarcodeMatchScore(dbCode, scannedCode) {
+  if (!dbCode || !scannedCode) {
+    return 0;
+  }
+
+  if (dbCode === scannedCode) {
+    return 3;
+  }
+
+  if (
+    dbCode.length >= MIN_PARTIAL_BARCODE_LENGTH &&
+    scannedCode.length >= MIN_PARTIAL_BARCODE_LENGTH
+  ) {
+    if (dbCode.includes(scannedCode)) {
+      return 2;
+    }
+
+    if (scannedCode.includes(dbCode)) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+function findBestBarcodeMatch(products, candidates) {
+  let matchedProduct = null;
+  let matchedCandidate = "";
+  let matchedScore = 0;
+
+  for (const product of products) {
+    const dbCode = normalizeBarcode(product?.barcode);
+    if (!dbCode) {
+      continue;
+    }
+
+    for (const candidate of candidates) {
+      const score = getBarcodeMatchScore(dbCode, candidate);
+      if (score > matchedScore) {
+        matchedScore = score;
+        matchedProduct = product;
+        matchedCandidate = candidate;
+      }
+
+      if (score === 3) {
+        break;
+      }
+    }
+
+    if (matchedScore === 3) {
+      break;
+    }
+  }
+
+  return {
+    product: matchedProduct,
+    candidate: matchedCandidate,
+    score: matchedScore,
+  };
 }
 
 function showToast(message, type = "info") {
@@ -1878,14 +1975,14 @@ function closeBillModal() {
 async function loadProducts() {
   try {
     const response = await api.getProducts({ limit: 500 });
-    state.products = response.data;
+    state.products = normalizeProductEntries(response.data);
     setCachedProducts(state.products);
     setLastSyncTimestamp();
     updateSyncInfo();
   } catch (error) {
     const cachedProducts = getCachedProducts();
     if (cachedProducts.length) {
-      state.products = cachedProducts;
+      state.products = normalizeProductEntries(cachedProducts);
       showToast("Using cached products while offline", "warning");
     } else {
       state.products = [];
@@ -2068,11 +2165,28 @@ async function handleCheckout() {
 
 function findProductByBarcode(barcode) {
   const candidates = getBarcodeCandidates(barcode);
-  if (!candidates.length) return null;
+  if (!candidates.length) {
+    return null;
+  }
 
-  return (
-    state.products.find((product) => candidates.includes(normalizeBarcode(product.barcode))) || null
-  );
+  const localMatch = findBestBarcodeMatch(state.products, candidates);
+
+  logScannerDebug("Local barcode lookup finished", {
+    candidates,
+    matchType:
+      localMatch.score === 3 ? "exact" : localMatch.score > 0 ? "partial" : "none",
+    matchedProduct: localMatch.product
+      ? {
+          id: localMatch.product._id,
+          name: localMatch.product.name,
+          barcode: String(localMatch.product.barcode || "").trim(),
+          barcodeLength: String(localMatch.product.barcode || "").trim().length,
+          candidateLength: localMatch.candidate.length,
+        }
+      : null,
+  });
+
+  return localMatch.product || null;
 }
 
 async function resolveProductByBarcode(code) {
@@ -2090,16 +2204,73 @@ async function resolveProductByBarcode(code) {
     try {
       const response = await api.getProductByBarcode(candidate);
       if (response?.data) {
-        const existingIndex = state.products.findIndex((product) => product._id === response.data._id);
+        const normalizedProduct = normalizeProductEntry(response.data);
+        const existingIndex = state.products.findIndex((product) => product._id === normalizedProduct._id);
         if (existingIndex >= 0) {
-          state.products[existingIndex] = response.data;
+          state.products[existingIndex] = normalizedProduct;
         } else {
-          state.products.unshift(response.data);
+          state.products.unshift(normalizedProduct);
         }
-        return response.data;
+
+        logScannerDebug("Remote exact barcode lookup matched", {
+          candidate,
+          candidateLength: candidate.length,
+          product: {
+            id: normalizedProduct._id,
+            name: normalizedProduct.name,
+            barcode: normalizedProduct.barcode,
+            barcodeLength: normalizedProduct.barcode.length,
+          },
+        });
+
+        return normalizedProduct;
       }
     } catch (error) {
       // Continue to next candidate until a valid barcode lookup succeeds.
+    }
+  }
+
+  const searchSeed = candidates[0] || "";
+  if (searchSeed.length >= MIN_PARTIAL_BARCODE_LENGTH) {
+    try {
+      const response = await api.getProducts({ search: searchSeed, limit: 60 });
+      const remoteProducts = normalizeProductEntries(response?.data);
+      const remoteMatch = findBestBarcodeMatch(remoteProducts, candidates);
+
+      if (remoteMatch.product) {
+        const existingIndex = state.products.findIndex((product) => product._id === remoteMatch.product._id);
+        if (existingIndex >= 0) {
+          state.products[existingIndex] = remoteMatch.product;
+        } else {
+          state.products.unshift(remoteMatch.product);
+        }
+
+        logScannerDebug("Remote partial barcode lookup matched", {
+          searchSeed,
+          candidates,
+          candidateUsed: remoteMatch.candidate,
+          matchType: remoteMatch.score === 3 ? "exact" : "partial",
+          product: {
+            id: remoteMatch.product._id,
+            name: remoteMatch.product.name,
+            barcode: remoteMatch.product.barcode,
+            barcodeLength: remoteMatch.product.barcode.length,
+          },
+        });
+
+        return remoteMatch.product;
+      }
+
+      logScannerDebug("Remote partial barcode lookup found no match", {
+        searchSeed,
+        candidates,
+        remoteResultCount: remoteProducts.length,
+      });
+    } catch (error) {
+      logScannerDebug("Remote partial barcode lookup failed", {
+        searchSeed,
+        message: error?.message || "Unknown error",
+      });
     }
   }
 
@@ -2107,19 +2278,50 @@ async function resolveProductByBarcode(code) {
 }
 
 async function applyScannedBarcode(code, sourceLabel = "Scanned") {
-  const normalizedCode = normalizeBarcode(code);
-  if (!normalizedCode) return;
+  const rawCode = String(code || "");
+  const normalizedCode = normalizeBarcode(rawCode);
+
+  logScannerDebug("Barcode captured", {
+    source: sourceLabel,
+    rawCode,
+    rawLength: rawCode.length,
+    normalizedCode,
+    normalizedLength: normalizedCode.length,
+  });
+
+  if (!normalizedCode) {
+    showToast("Product not found for scanned barcode", "warning");
+    return;
+  }
 
   elements.searchInput.value = normalizedCode;
   renderProductResults();
 
   const resolvedProduct = await resolveProductByBarcode(normalizedCode);
   if (resolvedProduct) {
+    const dbCode = String(resolvedProduct.barcode || "").trim();
+
+    logScannerDebug("Barcode matched product", {
+      source: sourceLabel,
+      scannedCode: normalizedCode,
+      scannedLength: normalizedCode.length,
+      dbBarcode: dbCode,
+      dbBarcodeLength: dbCode.length,
+      productId: resolvedProduct._id,
+      productName: resolvedProduct.name,
+    });
+
     addToCart(resolvedProduct, 1);
     renderProductTable();
     showToast(`${sourceLabel}: ${resolvedProduct.name}`, "success");
   } else {
-    showToast(`${sourceLabel} barcode ${normalizedCode} not found`, "warning");
+    logScannerDebug("No product matched scanned barcode", {
+      source: sourceLabel,
+      scannedCode: normalizedCode,
+      scannedLength: normalizedCode.length,
+      candidates: getBarcodeCandidates(normalizedCode),
+    });
+    showToast("Product not found for scanned barcode", "warning");
   }
 }
 
@@ -2228,16 +2430,51 @@ async function startScanner() {
 
       Quagga.start();
       state.scannerRunning = true;
+      scannerLastDetectedCode = "";
+      scannerLastDetectedAt = 0;
+      scannerDetectionInFlight = false;
       startScannerNoResultTimer();
 
       scannerDetectedHandler = (result) => {
-        const code = result?.codeResult?.code;
-        if (!code) return;
+        const rawCode = String(result?.codeResult?.code || "");
+        const normalizedCode = normalizeBarcode(rawCode);
+
+        logScannerDebug("Scanner detection event", {
+          rawCode,
+          rawLength: rawCode.length,
+          normalizedCode,
+          normalizedLength: normalizedCode.length,
+          format: String(result?.codeResult?.format || ""),
+        });
+
+        if (!normalizedCode || normalizedCode.length < 3) {
+          return;
+        }
+
+        const now = Date.now();
+        const duplicateDetected =
+          normalizedCode === scannerLastDetectedCode &&
+          now - scannerLastDetectedAt < SCANNER_DETECTION_COOLDOWN_MS;
+
+        if (scannerDetectionInFlight || duplicateDetected) {
+          logScannerDebug("Scanner detection ignored", {
+            reason: scannerDetectionInFlight ? "in-flight" : "duplicate",
+            normalizedCode,
+            sinceLastMs: now - scannerLastDetectedAt,
+          });
+          return;
+        }
+
+        scannerDetectionInFlight = true;
+        scannerLastDetectedCode = normalizedCode;
+        scannerLastDetectedAt = now;
 
         clearScannerNoResultTimer();
-        void applyScannedBarcode(code, "Scanned");
-
         stopScanner();
+
+        void applyScannedBarcode(rawCode, "Scanned").finally(() => {
+          scannerDetectionInFlight = false;
+        });
       };
 
       Quagga.onDetected(scannerDetectedHandler);
