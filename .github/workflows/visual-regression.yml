@@ -1,0 +1,55 @@
+name: Visual Regression
+
+on:
+  pull_request:
+    paths:
+      - frontend/**
+      - tests/visual/**
+      - playwright.config.js
+      - tailwind.config.js
+      - package.json
+      - package-lock.json
+      - .github/workflows/visual-regression.yml
+  workflow_dispatch:
+
+concurrency:
+  group: visual-regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  snapshots:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build CSS assets
+        run: npm run build:css
+
+      - name: Install Playwright browser
+        run: npx playwright install chromium
+
+      - name: Run visual regression suite
+        run: npm run test:visual
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-regression-artifacts
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14

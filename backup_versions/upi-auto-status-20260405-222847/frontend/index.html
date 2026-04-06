@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CounterCraft POS</title>
+    <link
+      rel="preconnect"
+      href="https://fonts.googleapis.com"
+    />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              dune: {
+                50: "#f8f8f5",
+                100: "#f0efe9",
+                200: "#dfdbcc",
+                300: "#c5bea9",
+                400: "#a99f85",
+                500: "#8d8267",
+                600: "#72674e",
+                700: "#5d523f",
+                800: "#4c4336",
+                900: "#3f392f",
+              },
+              ember: {
+                500: "#da5334",
+                600: "#b43f25",
+              },
+              mint: {
+                500: "#1b8a7a",
+                600: "#13695d",
+              },
+            },
+          },
+        },
+      };
+    </script>
+    <link
+      rel="stylesheet"
+      href="./assets/styles.css"
+    />
+  </head>
+  <body class="min-h-screen bg-dune-100 text-slate-900">
+    <div class="mesh-bg"></div>
+    <div class="grain-overlay"></div>
+
+    <div class="relative z-10 mx-auto max-w-7xl px-4 pb-8 pt-6 md:px-8">
+      <header class="surface p-6 md:p-8">
+        <div class="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p class="eyebrow">Retail Billing Suite</p>
+            <h1 class="headline mt-2">CounterCraft POS</h1>
+            <p class="mt-2 max-w-2xl text-sm text-slate-600 md:text-base">
+              Mobile-friendly retail POS with inventory control, barcode checkout,
+              offline fallback, and real-time sales insights.
+            </p>
+          </div>
+
+          <div class="flex w-full flex-col gap-2 lg:max-w-lg">
+            <div class="status-row">
+              <span class="status-label">API:</span>
+              <span
+                id="api-base"
+                class="status-value"
+              ></span>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <span
+                id="network-badge"
+                class="status-badge badge-online"
+                >Online</span
+              >
+              <span
+                id="pending-badge"
+                class="status-badge"
+                >0 pending</span
+              >
+              <span
+                id="sync-info"
+                class="status-badge"
+                >Last sync: never</span
+              >
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <nav class="mt-6 flex flex-wrap gap-2">
+        <button
+          data-tab="pos"
+          class="tab-btn tab-active"
+          type="button"
+        >
+          POS Terminal
+        </button>
+        <button
+          data-tab="admin"
+          class="tab-btn"
+          type="button"
+        >
+          Inventory Admin
+        </button>
+        <button
+          data-tab="dashboard"
+          class="tab-btn"
+          type="button"
+        >
+          Sales Dashboard
+        </button>
+        <button
+          data-tab="history"
+          class="tab-btn"
+          type="button"
+        >
+          Transactions
+        </button>
+      </nav>
+
+      <main class="mt-5 space-y-5">
+        <section data-tab-panel="pos">
+          <div class="grid gap-5 lg:grid-cols-[1.25fr_1fr]">
+            <article class="surface p-4 md:p-5">
+              <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 class="section-title">Product Lookup</h2>
+                  <p class="section-subtitle">
+                    Search by product name or barcode. Use camera scanner for fast checkout.
+                  </p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button
+                    id="scan-button"
+                    type="button"
+                    class="action-btn"
+                  >
+                    Scan Barcode
+                  </button>
+                  <button
+                    id="manual-barcode-button"
+                    type="button"
+                    class="secondary-btn"
+                  >
+                    Enter Barcode
+                  </button>
+                </div>
+              </div>
+
+              <label
+                for="search-input"
+                class="mt-4 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500"
+                >Search Product</label
+              >
+              <input
+                id="search-input"
+                type="text"
+                placeholder="Type name or barcode"
+                class="field-input mt-2"
+              />
+
+              <div
+                id="product-results"
+                class="mt-4 max-h-[30rem] space-y-2 overflow-auto pr-1"
+              ></div>
+            </article>
+
+            <article class="surface p-4 md:p-5">
+              <div class="flex items-start justify-between gap-2">
+                <div>
+                  <h2 class="section-title">Cart & Billing</h2>
+                  <p class="section-subtitle">Quantity controls, total calculation, and payment simulation.</p>
+                </div>
+                <button
+                  id="clear-cart-button"
+                  class="text-xs font-semibold text-slate-500 hover:text-slate-800"
+                  type="button"
+                >
+                  Clear
+                </button>
+              </div>
+
+              <div
+                id="cart-list"
+                class="mt-4 max-h-64 space-y-2 overflow-auto pr-1"
+              ></div>
+
+              <div class="mt-5 grid gap-3 md:grid-cols-2">
+                <label class="text-sm font-medium text-slate-700">
+                  Tax
+                  <input
+                    id="tax-input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value="0"
+                    class="field-input mt-1"
+                  />
+                </label>
+                <label class="text-sm font-medium text-slate-700">
+                  Discount
+                  <input
+                    id="discount-input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value="0"
+                    class="field-input mt-1"
+                  />
+                </label>
+              </div>
+
+              <div class="mt-4">
+                <p class="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Payment Method</p>
+                <div class="mt-2 grid grid-cols-3 gap-2">
+                  <button
+                    class="payment-btn payment-active"
+                    data-payment-method="cash"
+                    type="button"
+                  >
+                    Cash
+                  </button>
+                  <button
+                    class="payment-btn"
+                    data-payment-method="upi"
+                    type="button"
+                  >
+                    UPI
+                  </button>
+                  <button
+                    class="payment-btn"
+                    data-payment-method="card"
+                    type="button"
+                  >
+                    Card
+                  </button>
+                </div>
+              </div>
+
+              <div class="mt-4 grid gap-3 md:grid-cols-2">
+                <label class="text-sm font-medium text-slate-700">
+                  Paid Amount
+                  <input
+                    id="paid-amount-input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value="0"
+                    class="field-input mt-1"
+                  />
+                </label>
+                <label class="text-sm font-medium text-slate-700">
+                  Cashier
+                  <input
+                    id="cashier-input"
+                    type="text"
+                    placeholder="Counter 1"
+                    class="field-input mt-1"
+                  />
+                </label>
+              </div>
+
+              <div class="mt-4 space-y-2 rounded-2xl bg-dune-50 p-3">
+                <div class="flex items-center justify-between text-sm">
+                  <span>Subtotal</span>
+                  <strong id="subtotal-value">INR 0.00</strong>
+                </div>
+                <div class="flex items-center justify-between text-base">
+                  <span class="font-semibold">Total</span>
+                  <strong
+                    id="total-value"
+                    class="text-ember-600"
+                    >INR 0.00</strong
+                  >
+                </div>
+              </div>
+
+              <button
+                id="checkout-button"
+                class="primary-btn mt-4"
+                type="button"
+              >
+                Process Payment
+              </button>
+            </article>
+          </div>
+
+          <article class="surface mt-5 p-4 md:p-5">
+            <h3 class="section-title">Low Stock Alerts</h3>
+            <div
+              id="low-stock-alert"
+              class="mt-2 rounded-2xl bg-amber-50 p-3"
+            ></div>
+          </article>
+        </section>
+
+        <section
+          data-tab-panel="admin"
+          class="hidden"
+        >
+          <div class="grid gap-5 xl:grid-cols-[0.95fr_1.3fr]">
+            <article class="surface p-4 md:p-5">
+              <h2
+                id="product-form-title"
+                class="section-title"
+              >
+                Add Product
+              </h2>
+              <p class="section-subtitle">Create or edit products with price, stock, and barcode.</p>
+
+              <form
+                id="product-form"
+                class="mt-4 space-y-3"
+              >
+                <label class="text-sm font-medium text-slate-700">
+                  Product Name
+                  <input
+                    name="name"
+                    required
+                    type="text"
+                    class="field-input mt-1"
+                  />
+                </label>
+                <label class="text-sm font-medium text-slate-700">
+                  Barcode
+                  <input
+                    name="barcode"
+                    required
+                    type="text"
+                    class="field-input mt-1"
+                  />
+                </label>
+                <label class="text-sm font-medium text-slate-700">
+                  Category
+                  <input
+                    name="category"
+                    type="text"
+                    class="field-input mt-1"
+                    placeholder="General"
+                  />
+                </label>
+                <div class="grid grid-cols-2 gap-3">
+                  <label class="text-sm font-medium text-slate-700">
+                    Price
+                    <input
+                      name="price"
+                      required
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      class="field-input mt-1"
+                    />
+                  </label>
+                  <label class="text-sm font-medium text-slate-700">
+                    Stock
+                    <input
+                      name="stock"
+                      required
+                      type="number"
+                      min="0"
+                      step="1"
+                      class="field-input mt-1"
+                    />
+                  </label>
+                </div>
+
+                <div class="flex gap-2 pt-2">
+                  <button
+                    id="product-form-submit"
+                    class="primary-btn"
+                    type="submit"
+                  >
+                    Save Product
+                  </button>
+                  <button
+                    id="product-form-cancel"
+                    class="secondary-btn hidden"
+                    type="button"
+                  >
+                    Cancel Edit
+                  </button>
+                </div>
+              </form>
+            </article>
+
+            <article class="surface p-4 md:p-5">
+              <h2 class="section-title">Inventory Management</h2>
+              <p class="section-subtitle">Track stock, update quantities, and deactivate discontinued items.</p>
+
+              <div class="table-wrap mt-4">
+                <table class="w-full min-w-[960px] table-fixed text-sm">
+                  <thead>
+                    <tr class="bg-dune-50 text-left text-xs uppercase tracking-[0.11em] text-slate-600">
+                      <th class="px-3 py-3">Name</th>
+                      <th class="px-3 py-3">Barcode</th>
+                      <th class="px-3 py-3">Category</th>
+                      <th class="px-3 py-3">Price</th>
+                      <th class="px-3 py-3">Stock</th>
+                      <th class="px-3 py-3">Status</th>
+                      <th class="px-3 py-3">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="product-table-body"></tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section
+          data-tab-panel="dashboard"
+          class="hidden"
+        >
+          <article class="surface p-4 md:p-5">
+            <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 class="section-title">Sales Dashboard</h2>
+                <p class="section-subtitle">Daily and weekly analytics with product trends.</p>
+              </div>
+              <div class="flex gap-2">
+                <button
+                  data-range="daily"
+                  class="range-btn range-active"
+                  type="button"
+                >
+                  Daily
+                </button>
+                <button
+                  data-range="weekly"
+                  class="range-btn"
+                  type="button"
+                >
+                  Weekly
+                </button>
+                <button
+                  data-range="monthly"
+                  class="range-btn"
+                  type="button"
+                >
+                  Monthly
+                </button>
+              </div>
+            </div>
+
+            <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <div class="metric-card">
+                <p>Revenue</p>
+                <h3 id="metric-revenue">INR 0.00</h3>
+              </div>
+              <div class="metric-card">
+                <p>Transactions</p>
+                <h3 id="metric-transactions">0</h3>
+              </div>
+              <div class="metric-card">
+                <p>Avg Bill</p>
+                <h3 id="metric-avg-bill">INR 0.00</h3>
+              </div>
+              <div class="metric-card">
+                <p>Low Stock</p>
+                <h3 id="metric-low-stock">0</h3>
+              </div>
+              <div class="metric-card">
+                <p>Inventory Value</p>
+                <h3 id="metric-inventory-value">INR 0.00</h3>
+              </div>
+            </div>
+          </article>
+
+          <div class="mt-5 grid gap-5 xl:grid-cols-[1fr_1fr]">
+            <article class="surface p-4 md:p-5">
+              <h3 class="section-title">Payment Mix</h3>
+              <div
+                id="payment-breakdown"
+                class="mt-4 space-y-2"
+              ></div>
+            </article>
+
+            <article class="surface p-4 md:p-5">
+              <h3 class="section-title">Top Products</h3>
+              <div
+                id="top-products"
+                class="mt-4 space-y-2"
+              ></div>
+            </article>
+          </div>
+
+          <article class="surface mt-5 p-4 md:p-5">
+            <h3 class="section-title">Revenue Trend</h3>
+            <div
+              id="trend-chart"
+              class="mt-4 space-y-2"
+            ></div>
+          </article>
+        </section>
+
+        <section
+          data-tab-panel="history"
+          class="hidden"
+        >
+          <article class="surface p-4 md:p-5">
+            <h2 class="section-title">Transaction History</h2>
+            <p class="section-subtitle">Stored sales from the billing API with payment mode and cashier details.</p>
+
+            <div class="table-wrap mt-4">
+              <table class="w-full min-w-[820px] table-fixed text-sm">
+                <thead>
+                  <tr class="bg-dune-50 text-left text-xs uppercase tracking-[0.11em] text-slate-600">
+                    <th class="px-3 py-3">Bill No</th>
+                    <th class="px-3 py-3">Date/Time</th>
+                    <th class="px-3 py-3">Mode</th>
+                    <th class="px-3 py-3">Items</th>
+                    <th class="px-3 py-3">Total</th>
+                    <th class="px-3 py-3">Cashier</th>
+                  </tr>
+                </thead>
+                <tbody id="history-table-body"></tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <div
+      id="scanner-modal"
+      class="modal hidden"
+    >
+      <div class="modal-card">
+        <div class="flex items-center justify-between">
+          <h3 class="section-title">Scan Barcode</h3>
+          <button
+            id="scanner-close"
+            type="button"
+            class="secondary-btn"
+          >
+            Close
+          </button>
+        </div>
+        <p class="section-subtitle mt-1">Allow camera permission and point to barcode label.</p>
+        <div
+          id="scanner-viewport"
+          class="scanner-box mt-3"
+        ></div>
+      </div>
+    </div>
+
+    <div
+      id="upi-modal"
+      class="modal modal-upi hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="upi-title"
+    >
+      <div class="modal-card upi-modal-card">
+        <div class="flex items-start justify-between gap-2">
+          <div>
+            <h3
+              id="upi-title"
+              class="section-title"
+            >
+              Scan & Pay
+            </h3>
+            <p class="section-subtitle">Use Google Pay, PhonePe, Paytm, or any UPI app.</p>
+          </div>
+          <p
+            id="upi-countdown"
+            class="upi-countdown"
+          >
+            Session expires in 02:00
+          </p>
+        </div>
+
+        <div class="upi-amount-wrap">
+          <span>Total Amount</span>
+          <strong id="upi-amount-value">₹0.00</strong>
+        </div>
+
+        <div class="upi-meta-grid">
+          <div class="upi-meta-row">
+            <span>Shop</span>
+            <strong id="upi-shop-name">CounterCraft POS</strong>
+          </div>
+          <div class="upi-meta-row">
+            <span>UPI ID</span>
+            <strong id="upi-id-value">hri41468@oksbi</strong>
+          </div>
+        </div>
+
+        <div
+          id="upi-qr-root"
+          class="upi-qr-wrap"
+        ></div>
+
+        <p
+          id="upi-payment-status"
+          class="upi-status upi-status-waiting"
+        >
+          Waiting for payment...
+        </p>
+
+        <a
+          id="upi-open-app-link"
+          class="secondary-btn upi-open-app-link"
+          href="#"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Open UPI App
+        </a>
+
+        <div class="upi-action-row">
+          <button
+            id="upi-cancel-button"
+            class="secondary-btn"
+            type="button"
+          >
+            Cancel
+          </button>
+          <button
+            id="upi-done-button"
+            class="upi-primary-btn"
+            type="button"
+          >
+            Payment Done
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="bill-modal"
+      class="modal hidden"
+    >
+      <div class="modal-card bill-modal-card">
+        <div class="flex items-center justify-between gap-3">
+          <h3 class="section-title">Generated Bill</h3>
+          <div class="flex gap-2">
+            <button
+              id="bill-print"
+              class="secondary-btn"
+              type="button"
+            >
+              Print
+            </button>
+            <button
+              id="bill-close"
+              class="secondary-btn"
+              type="button"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+        <div
+          id="bill-content"
+          class="mt-3"
+        ></div>
+      </div>
+    </div>
+
+    <div
+      id="toast-root"
+      class="toast-root"
+      aria-live="polite"
+    ></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://unpkg.com/quagga@0.12.1/dist/quagga.min.js"></script>
+    <script
+      type="module"
+      src="./js/app.js?v=20260405-3"
+    ></script>
+  </body>
+</html>
