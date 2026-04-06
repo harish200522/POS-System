@@ -1,7 +1,7 @@
 import dns from "node:dns";
 import app from "./app.js";
 import { connectDatabase } from "./config/db.js";
-import { env } from "./config/env.js";
+import { assertValidEnv, env } from "./config/env.js";
 
 const PORT = env.port;
 
@@ -20,40 +20,28 @@ function configureDnsResolvers() {
 }
 
 async function startServer() {
-  let memoryServer = null;
-
   try {
+    assertValidEnv();
     configureDnsResolvers();
 
-    let connection;
+    console.log(`Starting POS backend in ${env.nodeEnv} mode`);
 
-    try {
-      connection = await connectDatabase(env.mongoUri);
-      console.log(`MongoDB connected: ${connection.host}`);
-    } catch (connectionError) {
-      if (!env.allowInMemoryDb || env.isProduction) {
-        const message = String(connectionError?.message || "");
-        if (/whitelist|ip|srv|dns|connect|timed out/i.test(message)) {
-          console.error(
-            "Atlas connectivity checklist: verify cluster is running, network access allows this server IP, DB user is valid, and MONGO_URI points to the correct database."
-          );
-        }
-        throw connectionError;
-      }
+    const connection = await connectDatabase(env.mongoUri);
+    console.log(`MongoDB connection status: connected (${connection.host})`);
 
-      console.warn(`Primary MongoDB connection failed: ${connectionError.message}`);
-      console.warn("Starting in-memory MongoDB fallback...");
-
-      const { MongoMemoryServer } = await import("mongodb-memory-server");
-      memoryServer = await MongoMemoryServer.create();
-      const inMemoryUri = memoryServer.getUri();
-      connection = await connectDatabase(inMemoryUri);
-
-      console.log(`In-memory MongoDB connected: ${connection.host}`);
-    }
+    connection.on("disconnected", () => {
+      console.warn("MongoDB connection status: disconnected");
+    });
+    connection.on("reconnected", () => {
+      console.log("MongoDB connection status: reconnected");
+    });
+    connection.on("error", (connectionError) => {
+      console.error(`MongoDB connection status: error (${connectionError.message})`);
+    });
 
     const server = app.listen(PORT, () => {
-      console.log(`POS backend running at http://127.0.0.1:${PORT}`);
+      console.log("Server started");
+      console.log(`Port: ${PORT}`);
     });
 
     const gracefulShutdown = async (signal) => {
@@ -62,11 +50,6 @@ async function startServer() {
         try {
           await connection.close();
           console.log("MongoDB connection closed");
-
-          if (memoryServer) {
-            await memoryServer.stop();
-            console.log("In-memory MongoDB stopped");
-          }
         } finally {
           process.exit(0);
         }
@@ -76,7 +59,15 @@ async function startServer() {
     process.on("SIGINT", () => gracefulShutdown("SIGINT"));
     process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
   } catch (error) {
-    console.error("Failed to start POS backend:", error.message);
+    const message = String(error?.message || "Unknown startup error");
+    console.error(`Failed to start POS backend:\n${message}`);
+
+    if (/whitelist|ip|srv|dns|connect|timed out|econnrefused|enotfound|authentication failed/i.test(message)) {
+      console.error(
+        "Atlas connectivity checklist: verify cluster is running, network access allows this server IP, DB user is valid, and MONGO_URI points to the correct database."
+      );
+    }
+
     process.exit(1);
   }
 }

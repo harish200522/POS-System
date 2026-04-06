@@ -25,10 +25,8 @@ function isPlaceholderSecret(value) {
   return /changeme|example|xxxxxxxx|<|>|your-/i.test(String(value || ""));
 }
 
-function assert(condition, message) {
-  if (!condition) {
-    throw new Error(message);
-  }
+function isRequired(value) {
+  return value !== undefined && value !== null && String(value).trim() !== "";
 }
 
 function buildEnv() {
@@ -39,13 +37,9 @@ function buildEnv() {
     ? []
     : ["http://127.0.0.1:5500", "http://localhost:5500"];
   const clientOrigins = parseOrigins(process.env.CLIENT_ORIGIN, fallbackClientOrigins);
-  const allowInMemoryDb = asBoolean(process.env.ALLOW_IN_MEMORY_DB, false);
   const trustProxy = asBoolean(process.env.TRUST_PROXY, false);
-  const port = asNumber(process.env.PORT, 5000);
-
-  const jwtSecret =
-    String(process.env.JWT_SECRET || "").trim() ||
-    (isProduction ? "" : "dev-only-insecure-secret-change-before-production");
+  const port = asNumber(process.env.PORT, Number.NaN);
+  const jwtSecret = String(process.env.JWT_SECRET || "").trim();
   const jwtExpiresIn = String(process.env.JWT_EXPIRES_IN || "8h").trim();
 
   const config = {
@@ -53,7 +47,6 @@ function buildEnv() {
     isProduction,
     port,
     mongoUri: String(process.env.MONGO_URI || "").trim(),
-    allowInMemoryDb,
     dnsServers: String(process.env.DNS_SERVERS || "").trim(),
     clientOrigins,
     trustProxy,
@@ -67,33 +60,79 @@ function buildEnv() {
     razorpayKeySecret: String(process.env.RAZORPAY_KEY_SECRET || "").trim(),
     razorpayWebhookSecret: String(process.env.RAZORPAY_WEBHOOK_SECRET || "").trim(),
     upiId: String(process.env.UPI_ID || "").trim(),
+    shopName: String(process.env.SHOP_NAME || "CounterCraft POS").trim() || "CounterCraft POS",
+    upiSessionTimeoutSec: asNumber(process.env.UPI_SESSION_TIMEOUT_SEC, 120),
   };
 
-  assert(["development", "test", "production"].includes(config.nodeEnv), "NODE_ENV is invalid");
-  assert(config.port > 0 && config.port < 65536, "PORT must be between 1 and 65535");
+  return config;
+}
 
-  if (config.isProduction) {
-    assert(config.mongoUri, "MONGO_URI is required in production");
-    assert(!config.allowInMemoryDb, "ALLOW_IN_MEMORY_DB must be false in production");
-    assert(config.clientOrigins.length > 0, "CLIENT_ORIGIN is required in production");
-    assert(config.jwtSecret && config.jwtSecret.length >= 32, "JWT_SECRET must be at least 32 characters in production");
-    assert(!isPlaceholderSecret(config.jwtSecret), "JWT_SECRET cannot be a placeholder value");
+function validateEnv(config) {
+  const errors = [];
+
+  if (!isRequired(process.env.MONGO_URI)) {
+    errors.push("MONGO_URI is required");
   }
 
-  if (!config.mongoUri && !config.allowInMemoryDb) {
-    throw new Error("MONGO_URI is required unless ALLOW_IN_MEMORY_DB is true");
+  if (!isRequired(process.env.JWT_SECRET)) {
+    errors.push("JWT_SECRET is required");
+  }
+
+  if (!isRequired(process.env.NODE_ENV)) {
+    errors.push("NODE_ENV is required");
+  }
+
+  if (!isRequired(process.env.PORT)) {
+    errors.push("PORT is required");
+  }
+
+  if (!["development", "test", "production"].includes(config.nodeEnv)) {
+    errors.push("NODE_ENV must be one of: development, test, production");
+  }
+
+  if (!Number.isFinite(config.port) || config.port <= 0 || config.port >= 65536) {
+    errors.push("PORT must be between 1 and 65535");
+  }
+
+  if (config.isProduction) {
+    if (config.clientOrigins.length === 0) {
+      errors.push("CLIENT_ORIGIN is required in production");
+    }
+
+    if (config.clientOrigins.includes("*")) {
+      errors.push("CLIENT_ORIGIN cannot contain '*' in production");
+    }
+
+    if (config.jwtSecret.length < 32) {
+      errors.push("JWT_SECRET must be at least 32 characters in production");
+    }
+
+    if (isPlaceholderSecret(config.jwtSecret)) {
+      errors.push("JWT_SECRET cannot be a placeholder value");
+    }
+  }
+
+  if (config.upiSessionTimeoutSec < 60 || config.upiSessionTimeoutSec > 900) {
+    errors.push("UPI_SESSION_TIMEOUT_SEC must be between 60 and 900");
   }
 
   const hasAnyRazorpay = Boolean(config.razorpayKeyId || config.razorpayKeySecret || config.razorpayWebhookSecret);
   const hasAllRazorpay = Boolean(config.razorpayKeyId && config.razorpayKeySecret && config.razorpayWebhookSecret);
 
   if (hasAnyRazorpay && !hasAllRazorpay) {
-    throw new Error(
-      "RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, and RAZORPAY_WEBHOOK_SECRET must all be set together"
-    );
+    errors.push("RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, and RAZORPAY_WEBHOOK_SECRET must all be set together");
   }
 
-  return config;
+  return errors;
 }
 
 export const env = buildEnv();
+export const envValidationErrors = validateEnv(env);
+
+export function assertValidEnv() {
+  if (!envValidationErrors.length) {
+    return;
+  }
+
+  throw new Error(`Invalid environment configuration:\n- ${envValidationErrors.join("\n- ")}`);
+}

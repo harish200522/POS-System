@@ -71,12 +71,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(morgan(env.isProduction ? "combined" : "dev"));
 
 app.get("/api/health", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "POS backend is running",
-    environment: env.nodeEnv,
-    timestamp: new Date().toISOString(),
-  });
+  res.status(200).json({ status: "ok" });
 });
 
 app.use("/api/auth", authRoutes);

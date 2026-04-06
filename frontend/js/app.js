@@ -2143,7 +2143,7 @@ function getCameraErrorMessage(error) {
   }
 
   if (errorName === "SecurityError") {
-    return "Camera blocked by browser security policy. Use localhost or HTTPS.";
+    return "Camera blocked by browser security policy. Use a secure context (HTTPS).";
   }
 
   return "Camera access failed. Check permissions or use manual barcode entry.";
@@ -2160,7 +2160,7 @@ async function startScanner() {
   }
 
   if (!window.isSecureContext) {
-    showToast("Camera requires localhost or HTTPS. Using manual entry.", "warning");
+    showToast("Camera requires a secure context (HTTPS). Using manual entry.", "warning");
     promptManualBarcodeEntry();
     return;
   }

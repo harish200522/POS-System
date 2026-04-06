@@ -3,6 +3,7 @@ import Razorpay from "razorpay";
 import Product from "../models/Product.js";
 import Sale from "../models/Sale.js";
 import UpiPaymentSession from "../models/UpiPaymentSession.js";
+import { env } from "../config/env.js";
 import { processBillingPayload } from "./billingController.js";
 import { roundCurrency } from "../utils/dateRange.js";
 import { ApiError, asyncHandler } from "../utils/errors.js";
@@ -23,9 +24,13 @@ function parsePositiveNumber(value, label) {
 }
 
 function getUpiConfiguration() {
+  if (!env.upiId) {
+    throw new ApiError(503, "UPI_ID is not configured");
+  }
+
   return {
-    upiId: process.env.UPI_ID || "hri41468@oksbi",
-    shopName: process.env.SHOP_NAME || "CounterCraft POS",
+    upiId: env.upiId,
+    shopName: env.shopName,
     currency: "INR",
   };
 }
@@ -35,8 +40,8 @@ function getRazorpayClient() {
     return razorpayClient;
   }
 
-  const keyId = process.env.RAZORPAY_KEY_ID;
-  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  const keyId = env.razorpayKeyId;
+  const keySecret = env.razorpayKeySecret;
 
   if (!keyId || !keySecret) {
     return null;
@@ -239,10 +244,7 @@ export const createUpiPaymentSession = asyncHandler(async (req, res) => {
 
   const sessionId = `UPI-${Date.now()}-${Math.floor(Math.random() * 900000 + 100000)}`;
 
-  const timeoutSec = Math.min(
-    Math.max(Number(process.env.UPI_SESSION_TIMEOUT_SEC) || DEFAULT_UPI_SESSION_TIMEOUT_SEC, 60),
-    900
-  );
+  const timeoutSec = Math.min(Math.max(env.upiSessionTimeoutSec || DEFAULT_UPI_SESSION_TIMEOUT_SEC, 60), 900);
   const expiresAt = new Date(Date.now() + timeoutSec * 1000);
   const providerExpireBy = Math.floor((Date.now() + Math.max(timeoutSec, PROVIDER_MIN_EXPIRY_SEC) * 1000) / 1000);
 
@@ -368,7 +370,7 @@ export const completeUpiPaymentSession = asyncHandler(async (req, res) => {
 });
 
 export const handleUpiWebhook = asyncHandler(async (req, res) => {
-  const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  const webhookSecret = env.razorpayWebhookSecret;
   if (!webhookSecret) {
     return res.status(200).json({ success: true, message: "Webhook secret not configured. Event ignored." });
   }

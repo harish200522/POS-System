@@ -1,3 +1,5 @@
+import { env } from "../config/env.js";
+
 export function notFoundHandler(req, res) {
   return res.status(404).json({
     success: false,
@@ -19,10 +21,22 @@ export function errorHandler(err, req, res, next) {
     message = messages[0] || message;
   }
 
-  return res.status(statusCode).json({
+  if (env.isProduction && statusCode >= 500) {
+    message = "Internal server error";
+  }
+
+  const responseBody = {
     success: false,
     message,
-    details: err.details || null,
-    stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
-  });
+  };
+
+  if (err.details) {
+    responseBody.details = err.details;
+  }
+
+  if (!env.isProduction) {
+    responseBody.stack = err.stack;
+  }
+
+  return res.status(statusCode).json(responseBody);
 }
