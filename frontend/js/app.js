@@ -24,6 +24,9 @@ const state = {
   dashboardLoaded: false,
   historyLoaded: false,
   paymentSettingsLoaded: false,
+  reportDateFiltersInitialized: false,
+  dashboardReportExporting: false,
+  historyReportExporting: false,
   paymentSettings: {
     shopId: "",
     upiId: "",
@@ -110,7 +113,18 @@ const elements = {
   trendChart: document.getElementById("trend-chart"),
   topProducts: document.getElementById("top-products"),
 
+  dashboardReportStartDateInput: document.getElementById("dashboard-report-start-date"),
+  dashboardReportEndDateInput: document.getElementById("dashboard-report-end-date"),
+  dashboardReportPaymentMethodInput: document.getElementById("dashboard-report-payment-method"),
+  dashboardExportCsvButton: document.getElementById("dashboard-export-csv"),
+  dashboardExportPdfButton: document.getElementById("dashboard-export-pdf"),
+
   historyTableBody: document.getElementById("history-table-body"),
+  historyReportStartDateInput: document.getElementById("history-report-start-date"),
+  historyReportEndDateInput: document.getElementById("history-report-end-date"),
+  historyReportPaymentMethodInput: document.getElementById("history-report-payment-method"),
+  historyExportCsvButton: document.getElementById("history-export-csv"),
+  historyExportPdfButton: document.getElementById("history-export-pdf"),
 
   scannerModal: document.getElementById("scanner-modal"),
   scannerStage: document.getElementById("scanner-stage"),
@@ -218,6 +232,8 @@ const UPI_CONFIG = {
 
 const EXTERNAL_SCRIPT_URLS = {
   qrcode: "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js",
+  jspdf: "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
+  jspdfAutoTable: "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js",
 };
 
 const externalScriptLoaders = new Map();
@@ -466,6 +482,285 @@ function formatDateTime(value) {
 
   return date.toLocaleString();
 }
+
+function formatDateInputValue(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getDefaultReportDateRange() {
+  const endDate = new Date();
+  const startDate = new Date(endDate);
+  startDate.setDate(startDate.getDate() - 6);
+
+  return {
+    startDate: formatDateInputValue(startDate),
+    endDate: formatDateInputValue(endDate),
+  };
+}
+
+function initializeReportDateFilters() {
+  if (state.reportDateFiltersInitialized) {
+    return;
+  }
+
+  const defaults = getDefaultReportDateRange();
+
+  const startDateInputs = [elements.dashboardReportStartDateInput, elements.historyReportStartDateInput];
+  startDateInputs.forEach((input) => {
+    if (input && !String(input.value || "").trim()) {
+      input.value = defaults.startDate;
+    }
+  });
+
+  const endDateInputs = [elements.dashboardReportEndDateInput, elements.historyReportEndDateInput];
+  endDateInputs.forEach((input) => {
+    if (input && !String(input.value || "").trim()) {
+      input.value = defaults.endDate;
+    }
+  });
+
+  state.reportDateFiltersInitialized = true;
+}
+
+function buildReportQueryFromInputs({ startInput, endInput, paymentInput, limit = 1000 } = {}) {
+  const startDate = String(startInput?.value || "").trim();
+  const endDate = String(endInput?.value || "").trim();
+
+  if (Boolean(startDate) !== Boolean(endDate)) {
+    throw new Error("Select both From and To dates");
+  }
+
+  if (startDate && endDate) {
+    const normalizedStart = new Date(`${startDate}T00:00:00`);
+    const normalizedEnd = new Date(`${endDate}T23:59:59`);
+
+    if (Number.isNaN(normalizedStart.getTime()) || Number.isNaN(normalizedEnd.getTime())) {
+      throw new Error("Invalid date filter");
+    }
+
+    if (normalizedStart > normalizedEnd) {
+      throw new Error("From date cannot be after To date");
+    }
+  }
+
+  const paymentMethod = String(paymentInput?.value || "")
+    .trim()
+    .toLowerCase();
+
+  const query = {
+    limit: Math.min(Math.max(Number(limit) || 1000, 1), 1000),
+  };
+
+  if (startDate) {
+    query.startDate = startDate;
+  }
+
+  if (endDate) {
+    query.endDate = endDate;
+  }
+
+  if (paymentMethod) {
+    query.paymentMethod = paymentMethod;
+  }
+
+  return {
+    query,
+    filters: {
+      startDate,
+      endDate,
+      paymentMethod: paymentMethod || "all",
+    },
+  };
+}
+
+function getHistoryApiFilters() {
+  const { query } = buildReportQueryFromInputs({
+    startInput: elements.historyReportStartDateInput,
+    endInput: elements.historyReportEndDateInput,
+    paymentInput: elements.historyReportPaymentMethodInput,
+    limit: 20,
+  });
+
+  const historyQuery = {
+    limit: Math.min(Math.max(Number(query.limit) || 20, 1), 200),
+  };
+
+  if (query.startDate) {
+    historyQuery.from = query.startDate;
+  }
+
+  if (query.endDate) {
+    historyQuery.to = query.endDate;
+  }
+
+  if (query.paymentMethod) {
+    historyQuery.paymentMethod = query.paymentMethod;
+  }
+
+  return historyQuery;
+}
+
+function formatAmountForCsv(value) {
+  return asNumber(value, 0).toFixed(2);
+}
+
+function escapeCsvValue(value) {
+  const text = String(value ?? "");
+  if (!/[",\n]/.test(text)) {
+    return text;
+  }
+
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function buildCsvContent(columns, rows) {
+  const headerRow = columns.map((column) => escapeCsvValue(column.header)).join(",");
+  const dataRows = rows.map((row) =>
+    columns.map((column) => escapeCsvValue(column.getValue(row))).join(",")
+  );
+
+  return [headerRow, ...dataRows].join("\n");
+}
+
+function downloadFile({ content, fileName, mimeType }) {
+  const blob = new Blob([content], { type: mimeType });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  setTimeout(() => {
+    URL.revokeObjectURL(objectUrl);
+  }, 1000);
+}
+
+function formatPaymentMethodLabel(paymentMethod) {
+  if (String(paymentMethod || "").toLowerCase() === "cash") {
+    return "Cash";
+  }
+
+  if (String(paymentMethod || "").toLowerCase() === "upi") {
+    return "UPI";
+  }
+
+  return "All";
+}
+
+function formatReportDateRangeLabel(startDate, endDate) {
+  if (!startDate || !endDate) {
+    return "Last 30 days";
+  }
+
+  return `${startDate} to ${endDate}`;
+}
+
+function buildReportFileName(prefix, extension, filters = {}) {
+  const rangePart =
+    filters.startDate && filters.endDate
+      ? `${filters.startDate}_to_${filters.endDate}`
+      : "last_30_days";
+  const paymentPart = filters.paymentMethod && filters.paymentMethod !== "all" ? filters.paymentMethod : "all";
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+
+  return `${prefix}_${rangePart}_${paymentPart}_${timestamp}.${extension}`;
+}
+
+function setExportButtonsBusy({ buttons, activeButton, loadingLabel, busy }) {
+  buttons.forEach((button) => {
+    if (!button) {
+      return;
+    }
+
+    if (!button.dataset.idleLabel) {
+      button.dataset.idleLabel = button.textContent || "";
+    }
+
+    button.disabled = busy;
+    button.textContent =
+      busy && button === activeButton
+        ? loadingLabel
+        : button.dataset.idleLabel || button.textContent;
+  });
+}
+
+async function ensurePdfLibrary() {
+  const jsPdfNamespace = await loadExternalScript(EXTERNAL_SCRIPT_URLS.jspdf, "jspdf");
+  await loadExternalScript(EXTERNAL_SCRIPT_URLS.jspdfAutoTable);
+
+  const jsPDF = jsPdfNamespace?.jsPDF;
+  if (typeof jsPDF !== "function") {
+    throw new Error("Unable to load PDF export library");
+  }
+
+  return jsPDF;
+}
+
+async function exportTablePdf({ title, subtitleLines, columns, rows, fileName }) {
+  const jsPDF = await ensurePdfLibrary();
+  const doc = new jsPDF({
+    orientation: columns.length > 7 ? "landscape" : "portrait",
+    unit: "pt",
+    format: "a4",
+  });
+
+  let currentY = 38;
+  doc.setFontSize(16);
+  doc.text(String(title || "Report"), 40, currentY);
+  currentY += 18;
+
+  doc.setFontSize(10);
+  (subtitleLines || []).forEach((line) => {
+    doc.text(String(line), 40, currentY);
+    currentY += 13;
+  });
+
+  const autoTableInvoker =
+    typeof doc.autoTable === "function"
+      ? (options) => doc.autoTable(options)
+      : typeof window.jspdfAutoTable === "function"
+      ? (options) => window.jspdfAutoTable(doc, options)
+      : null;
+
+  if (!autoTableInvoker) {
+    throw new Error("Unable to load PDF table plugin");
+  }
+
+  autoTableInvoker({
+    startY: currentY + 4,
+    head: [columns.map((column) => column.header)],
+    body: rows.map((row) => columns.map((column) => String(column.getValue(row) ?? "-"))),
+    theme: "striped",
+    styles: {
+      fontSize: 9,
+      cellPadding: 4,
+      lineColor: [220, 226, 236],
+      lineWidth: 0.5,
+    },
+    headStyles: {
+      fillColor: [93, 82, 63],
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+    },
+    margin: {
+      left: 40,
+      right: 40,
+    },
+  });
+
+  doc.save(fileName);
+}
+
 
 function getPasswordValidationMessage(newPassword, confirmPassword) {
   const password = String(newPassword || "");
@@ -1942,6 +2237,281 @@ function renderTopProducts(products) {
     .join("");
 }
 
+function mergeReportFilters(serverFilters, fallbackFilters) {
+  return {
+    startDate: String(serverFilters?.startDate || fallbackFilters?.startDate || "").slice(0, 10),
+    endDate: String(serverFilters?.endDate || fallbackFilters?.endDate || "").slice(0, 10),
+    paymentMethod: String(serverFilters?.paymentMethod || fallbackFilters?.paymentMethod || "all").toLowerCase(),
+  };
+}
+
+function getSalesReportColumns({ forPdf = false } = {}) {
+  const amountFormatter = forPdf ? (value) => formatCurrency(value) : (value) => formatAmountForCsv(value);
+
+  return [
+    {
+      header: "Date",
+      getValue: (row) => row.date || "-",
+    },
+    {
+      header: "Transactions",
+      getValue: (row) => String(row.transactions ?? 0),
+    },
+    {
+      header: "Items Sold",
+      getValue: (row) => String(row.totalItems ?? 0),
+    },
+    {
+      header: "Revenue",
+      getValue: (row) => amountFormatter(row.totalRevenue),
+    },
+    {
+      header: "Tax",
+      getValue: (row) => amountFormatter(row.totalTax),
+    },
+    {
+      header: "Discount",
+      getValue: (row) => amountFormatter(row.totalDiscount),
+    },
+  ];
+}
+
+function getTransactionsReportColumns({ forPdf = false } = {}) {
+  const amountFormatter = forPdf ? (value) => formatCurrency(value) : (value) => formatAmountForCsv(value);
+
+  return [
+    {
+      header: "Bill No",
+      getValue: (row) => row.billNumber || "-",
+    },
+    {
+      header: "Date/Time",
+      getValue: (row) => formatDateTime(row.dateTime),
+    },
+    {
+      header: "Mode",
+      getValue: (row) => String(row.paymentMethod || "").toUpperCase() || "-",
+    },
+    {
+      header: "Items",
+      getValue: (row) => String(row.itemsCount ?? 0),
+    },
+    {
+      header: "Item Details",
+      getValue: (row) => row.items || "-",
+    },
+    {
+      header: "Total",
+      getValue: (row) => amountFormatter(row.total),
+    },
+    {
+      header: "Paid",
+      getValue: (row) => amountFormatter(row.paidAmount),
+    },
+    {
+      header: "Change",
+      getValue: (row) => amountFormatter(row.changeDue),
+    },
+    {
+      header: "Cashier",
+      getValue: (row) => row.cashier || "Default Cashier",
+    },
+    {
+      header: "Source",
+      getValue: (row) => row.source || "online",
+    },
+  ];
+}
+
+function exportCsvReport({ filePrefix, filters, columns, records }) {
+  const csvContent = buildCsvContent(columns, records);
+  const fileName = buildReportFileName(filePrefix, "csv", filters);
+
+  downloadFile({
+    content: csvContent,
+    fileName,
+    mimeType: "text/csv;charset=utf-8",
+  });
+}
+
+async function exportPdfReport({ title, filePrefix, filters, summaryLines, columns, records }) {
+  const fileName = buildReportFileName(filePrefix, "pdf", filters);
+
+  await exportTablePdf({
+    title,
+    subtitleLines: summaryLines,
+    columns,
+    rows: records,
+    fileName,
+  });
+}
+
+async function handleDashboardReportExport(format) {
+  if (state.authUser?.role !== "admin") {
+    showToast("Only admins can export reports", "error");
+    return;
+  }
+
+  if (state.dashboardReportExporting) {
+    return;
+  }
+
+  let requestContext;
+  try {
+    requestContext = buildReportQueryFromInputs({
+      startInput: elements.dashboardReportStartDateInput,
+      endInput: elements.dashboardReportEndDateInput,
+      paymentInput: elements.dashboardReportPaymentMethodInput,
+      limit: 1000,
+    });
+  } catch (error) {
+    showToast(error.message || "Invalid dashboard report filters", "error");
+    return;
+  }
+
+  const buttons = [elements.dashboardExportCsvButton, elements.dashboardExportPdfButton];
+  const activeButton = format === "pdf" ? elements.dashboardExportPdfButton : elements.dashboardExportCsvButton;
+
+  state.dashboardReportExporting = true;
+  setExportButtonsBusy({
+    buttons,
+    activeButton,
+    loadingLabel: format === "pdf" ? "Exporting PDF..." : "Exporting CSV...",
+    busy: true,
+  });
+
+  try {
+    const response = await api.getSalesReport(requestContext.query);
+    const reportData = response?.data || {};
+    const records = Array.isArray(reportData.records) ? reportData.records : [];
+
+    if (!records.length) {
+      showToast("No sales records found for selected filters", "warning");
+      return;
+    }
+
+    const filters = mergeReportFilters(reportData.filters, requestContext.filters);
+    const summary = reportData.summary || {};
+
+    if (format === "pdf") {
+      await exportPdfReport({
+        title: "Sales Report",
+        filePrefix: "sales_report",
+        filters,
+        summaryLines: [
+          `Range: ${formatReportDateRangeLabel(filters.startDate, filters.endDate)}`,
+          `Payment Mode: ${formatPaymentMethodLabel(filters.paymentMethod)}`,
+          `Revenue: ${formatCurrency(summary.totalRevenue || 0)} | Transactions: ${summary.totalTransactions || 0} | Items: ${summary.totalItems || 0}`,
+        ],
+        columns: getSalesReportColumns({ forPdf: true }),
+        records,
+      });
+    } else {
+      exportCsvReport({
+        filePrefix: "sales_report",
+        filters,
+        columns: getSalesReportColumns(),
+        records,
+      });
+    }
+
+    showToast(`Sales report ${format.toUpperCase()} exported`, "success");
+  } catch (error) {
+    showToast(error.message || "Unable to export sales report", "error");
+  } finally {
+    state.dashboardReportExporting = false;
+    setExportButtonsBusy({
+      buttons,
+      activeButton,
+      loadingLabel: "",
+      busy: false,
+    });
+  }
+}
+
+async function handleHistoryReportExport(format) {
+  if (state.authUser?.role !== "admin") {
+    showToast("Only admins can export reports", "error");
+    return;
+  }
+
+  if (state.historyReportExporting) {
+    return;
+  }
+
+  let requestContext;
+  try {
+    requestContext = buildReportQueryFromInputs({
+      startInput: elements.historyReportStartDateInput,
+      endInput: elements.historyReportEndDateInput,
+      paymentInput: elements.historyReportPaymentMethodInput,
+      limit: 1000,
+    });
+  } catch (error) {
+    showToast(error.message || "Invalid transaction report filters", "error");
+    return;
+  }
+
+  const buttons = [elements.historyExportCsvButton, elements.historyExportPdfButton];
+  const activeButton = format === "pdf" ? elements.historyExportPdfButton : elements.historyExportCsvButton;
+
+  state.historyReportExporting = true;
+  setExportButtonsBusy({
+    buttons,
+    activeButton,
+    loadingLabel: format === "pdf" ? "Exporting PDF..." : "Exporting CSV...",
+    busy: true,
+  });
+
+  try {
+    const response = await api.getTransactionsReport(requestContext.query);
+    const reportData = response?.data || {};
+    const records = Array.isArray(reportData.records) ? reportData.records : [];
+
+    if (!records.length) {
+      showToast("No transactions found for selected filters", "warning");
+      return;
+    }
+
+    const filters = mergeReportFilters(reportData.filters, requestContext.filters);
+    const summary = reportData.summary || {};
+
+    if (format === "pdf") {
+      await exportPdfReport({
+        title: "Transactions Report",
+        filePrefix: "transactions_report",
+        filters,
+        summaryLines: [
+          `Range: ${formatReportDateRangeLabel(filters.startDate, filters.endDate)}`,
+          `Payment Mode: ${formatPaymentMethodLabel(filters.paymentMethod)}`,
+          `Revenue: ${formatCurrency(summary.totalRevenue || 0)} | Transactions: ${summary.totalTransactions || 0} | Records Returned: ${summary.returnedRecords || records.length}`,
+        ],
+        columns: getTransactionsReportColumns({ forPdf: true }),
+        records,
+      });
+    } else {
+      exportCsvReport({
+        filePrefix: "transactions_report",
+        filters,
+        columns: getTransactionsReportColumns(),
+        records,
+      });
+    }
+
+    showToast(`Transactions report ${format.toUpperCase()} exported`, "success");
+  } catch (error) {
+    showToast(error.message || "Unable to export transactions report", "error");
+  } finally {
+    state.historyReportExporting = false;
+    setExportButtonsBusy({
+      buttons,
+      activeButton,
+      loadingLabel: "",
+      busy: false,
+    });
+  }
+}
+
 function resetProductForm() {
   state.selectedProductId = null;
   elements.productForm.reset();
@@ -2161,8 +2731,19 @@ async function loadAdminUsers() {
 }
 
 async function loadSalesHistory() {
+  let query = { limit: 20 };
+
   try {
-    const response = await api.getSalesHistory({ limit: 20 });
+    query = getHistoryApiFilters();
+  } catch (error) {
+    showToast(error.message || "Invalid history filters", "error");
+    state.salesHistory = [];
+    renderHistoryTable();
+    return;
+  }
+
+  try {
+    const response = await api.getSalesHistory(query);
     state.salesHistory = response.data;
   } catch (error) {
     state.salesHistory = [];
@@ -3202,6 +3783,46 @@ function bindEvents() {
     });
   });
 
+  if (elements.dashboardExportCsvButton) {
+    elements.dashboardExportCsvButton.addEventListener("click", () => {
+      void handleDashboardReportExport("csv");
+    });
+  }
+
+  if (elements.dashboardExportPdfButton) {
+    elements.dashboardExportPdfButton.addEventListener("click", () => {
+      void handleDashboardReportExport("pdf");
+    });
+  }
+
+  if (elements.historyExportCsvButton) {
+    elements.historyExportCsvButton.addEventListener("click", () => {
+      void handleHistoryReportExport("csv");
+    });
+  }
+
+  if (elements.historyExportPdfButton) {
+    elements.historyExportPdfButton.addEventListener("click", () => {
+      void handleHistoryReportExport("pdf");
+    });
+  }
+
+  [
+    elements.historyReportStartDateInput,
+    elements.historyReportEndDateInput,
+    elements.historyReportPaymentMethodInput,
+  ]
+    .filter(Boolean)
+    .forEach((input) => {
+      input.addEventListener("change", () => {
+        if (!state.authReady || !state.historyLoaded) {
+          return;
+        }
+
+        void loadSalesHistory();
+      });
+    });
+
   elements.scanButton.addEventListener("click", () => {
     void startScanner();
   });
@@ -3284,6 +3905,7 @@ async function init() {
   updatePendingBadge();
   updateSyncInfo();
   bindEvents();
+  initializeReportDateFilters();
   renderPaymentSettingsForm();
 
   renderCart();

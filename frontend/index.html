@@ -693,6 +693,55 @@
               </div>
             </div>
 
+            <div class="report-toolbar mt-4">
+              <div class="report-filter-grid">
+                <label class="report-filter-field">
+                  <span>From</span>
+                  <input
+                    id="dashboard-report-start-date"
+                    type="date"
+                    class="field-input report-field-input"
+                  />
+                </label>
+                <label class="report-filter-field">
+                  <span>To</span>
+                  <input
+                    id="dashboard-report-end-date"
+                    type="date"
+                    class="field-input report-field-input"
+                  />
+                </label>
+                <label class="report-filter-field">
+                  <span>Payment</span>
+                  <select
+                    id="dashboard-report-payment-method"
+                    class="field-input report-field-input"
+                  >
+                    <option value="">All</option>
+                    <option value="cash">Cash</option>
+                    <option value="upi">UPI</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="report-action-row">
+                <button
+                  id="dashboard-export-csv"
+                  class="secondary-btn btn-inline"
+                  type="button"
+                >
+                  Export Sales CSV
+                </button>
+                <button
+                  id="dashboard-export-pdf"
+                  class="secondary-btn btn-inline"
+                  type="button"
+                >
+                  Export Sales PDF
+                </button>
+              </div>
+            </div>
+
             <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
               <div class="metric-card">
                 <p>Revenue</p>
@@ -754,6 +803,55 @@
           <article class="surface p-4 md:p-5">
             <h2 class="section-title">Transaction History</h2>
             <p class="section-subtitle">Stored sales from the billing API with payment mode and cashier details.</p>
+
+            <div class="report-toolbar mt-4">
+              <div class="report-filter-grid">
+                <label class="report-filter-field">
+                  <span>From</span>
+                  <input
+                    id="history-report-start-date"
+                    type="date"
+                    class="field-input report-field-input"
+                  />
+                </label>
+                <label class="report-filter-field">
+                  <span>To</span>
+                  <input
+                    id="history-report-end-date"
+                    type="date"
+                    class="field-input report-field-input"
+                  />
+                </label>
+                <label class="report-filter-field">
+                  <span>Payment</span>
+                  <select
+                    id="history-report-payment-method"
+                    class="field-input report-field-input"
+                  >
+                    <option value="">All</option>
+                    <option value="cash">Cash</option>
+                    <option value="upi">UPI</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="report-action-row">
+                <button
+                  id="history-export-csv"
+                  class="secondary-btn btn-inline"
+                  type="button"
+                >
+                  Export Transactions CSV
+                </button>
+                <button
+                  id="history-export-pdf"
+                  class="secondary-btn btn-inline"
+                  type="button"
+                >
+                  Export Transactions PDF
+                </button>
+              </div>
+            </div>
 
             <div class="table-wrap mt-4">
               <table class="responsive-table history-table w-full text-sm">

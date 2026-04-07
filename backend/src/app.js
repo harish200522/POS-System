@@ -11,6 +11,7 @@ import inventoryRoutes from "./routes/inventoryRoutes.js";
 import paymentSettingsRoutes from "./routes/paymentSettingsRoutes.js";
 import paymentsRoutes from "./routes/paymentsRoutes.js";
 import productsRoutes from "./routes/productsRoutes.js";
+import reportsRoutes from "./routes/reportsRoutes.js";
 import salesRoutes from "./routes/salesRoutes.js";
 
 const app = express();
@@ -81,6 +82,7 @@ app.use("/api/billing", billingRoutes);
 app.use("/api/payments", paymentsRoutes);
 app.use("/api/payment", paymentSettingsRoutes);
 app.use("/api/sales", salesRoutes);
+app.use("/api/reports", reportsRoutes);
 app.use("/api/inventory", inventoryRoutes);
 
 app.use(notFoundHandler);

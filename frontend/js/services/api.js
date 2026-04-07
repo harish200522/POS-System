@@ -111,6 +111,8 @@ export const api = {
     }),
   getSalesHistory: (query) => request("/sales", { query }),
   getSalesSummary: (query) => request("/sales/summary", { query }),
+  getSalesReport: (query) => request("/reports/sales", { query }),
+  getTransactionsReport: (query) => request("/reports/transactions", { query }),
   getLowStockProducts: (query) => request("/inventory/low-stock", { query }),
   getInventoryOverview: (query) => request("/inventory/overview", { query }),
   getInventoryLogs: (query) => request("/inventory/logs", { query }),
