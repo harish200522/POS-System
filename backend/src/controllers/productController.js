@@ -11,8 +11,46 @@ function normalizeBarcodeValue(value) {
   return String(value ?? "").trim();
 }
 
+function normalizeBarcodeLookup(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toUpperCase();
+}
+
 function escapeRegex(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getBarcodeLookupCandidates(value) {
+  const normalized = normalizeBarcodeLookup(value);
+  if (!normalized) {
+    return [];
+  }
+
+  const candidates = new Set([normalized]);
+  const isNumeric = /^\d+$/.test(normalized);
+
+  if (isNumeric && normalized.length === 12) {
+    candidates.add(`0${normalized}`);
+  }
+
+  if (isNumeric && normalized.length === 13 && normalized.startsWith("0")) {
+    candidates.add(normalized.slice(1));
+  }
+
+  return Array.from(candidates);
+}
+
+function buildLooseBarcodeRegex(normalizedBarcode) {
+  const escapedChars = String(normalizedBarcode)
+    .split("")
+    .map((char) => escapeRegex(char));
+
+  return new RegExp(
+    `^[^a-zA-Z0-9]*${escapedChars.join("[^a-zA-Z0-9]*")}[^a-zA-Z0-9]*$`,
+    "i"
+  );
 }
 
 export const addProduct = asyncHandler(async (req, res) => {
@@ -127,7 +165,31 @@ export const getProductByBarcode = asyncHandler(async (req, res) => {
     throw new ApiError(400, "barcode parameter is required");
   }
 
-  const product = await Product.findOne({ barcode, isActive: true });
+  const normalizedCandidates = getBarcodeLookupCandidates(barcode);
+  const exactCandidates = Array.from(new Set([barcode, ...normalizedCandidates]));
+
+  let product = await Product.findOne({
+    barcode: { $in: exactCandidates },
+    isActive: true,
+  });
+
+  if (!product) {
+    for (const candidate of normalizedCandidates) {
+      if (candidate.length < 4) {
+        continue;
+      }
+
+      const looseBarcodeRegex = buildLooseBarcodeRegex(candidate);
+      product = await Product.findOne({
+        barcode: looseBarcodeRegex,
+        isActive: true,
+      });
+
+      if (product) {
+        break;
+      }
+    }
+  }
 
   if (!product) {
     throw new ApiError(404, "Product not found for this barcode");

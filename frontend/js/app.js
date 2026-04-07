@@ -169,8 +169,14 @@ let upiQrCodeInstance = null;
 let scannerLastDetectedCode = "";
 let scannerLastDetectedAt = 0;
 let scannerDetectionInFlight = false;
+let scannerCandidateCode = "";
+let scannerCandidateHits = 0;
+let scannerCandidateSeenAt = 0;
 const SCANNER_AUTO_FALLBACK_MS = 12000;
 const SCANNER_DETECTION_COOLDOWN_MS = 1200;
+const SCANNER_CONFIRMATION_HITS = 2;
+const SCANNER_CONFIRMATION_WINDOW_MS = 1800;
+const SCANNER_MIN_ACCEPTED_LENGTH = 4;
 const MIN_PARTIAL_BARCODE_LENGTH = 6;
 const SCANNER_DEBUG_ENABLED =
   ["localhost", "127.0.0.1"].includes(window.location.hostname) ||
@@ -2433,6 +2439,9 @@ async function startScanner() {
       scannerLastDetectedCode = "";
       scannerLastDetectedAt = 0;
       scannerDetectionInFlight = false;
+      scannerCandidateCode = "";
+      scannerCandidateHits = 0;
+      scannerCandidateSeenAt = 0;
       startScannerNoResultTimer();
 
       scannerDetectedHandler = (result) => {
@@ -2447,11 +2456,35 @@ async function startScanner() {
           format: String(result?.codeResult?.format || ""),
         });
 
-        if (!normalizedCode || normalizedCode.length < 3) {
+        if (!normalizedCode || normalizedCode.length < SCANNER_MIN_ACCEPTED_LENGTH) {
           return;
         }
 
         const now = Date.now();
+        const withinConfirmationWindow =
+          now - scannerCandidateSeenAt <= SCANNER_CONFIRMATION_WINDOW_MS;
+
+        // Mobile camera reads can be noisy; require consistent repeated detections.
+        if (normalizedCode === scannerCandidateCode && withinConfirmationWindow) {
+          scannerCandidateHits += 1;
+        } else {
+          scannerCandidateCode = normalizedCode;
+          scannerCandidateHits = 1;
+        }
+
+        scannerCandidateSeenAt = now;
+
+        logScannerDebug("Scanner candidate confirmation", {
+          normalizedCode,
+          hits: scannerCandidateHits,
+          requiredHits: SCANNER_CONFIRMATION_HITS,
+          withinConfirmationWindow,
+        });
+
+        if (scannerCandidateHits < SCANNER_CONFIRMATION_HITS) {
+          return;
+        }
+
         const duplicateDetected =
           normalizedCode === scannerLastDetectedCode &&
           now - scannerLastDetectedAt < SCANNER_DETECTION_COOLDOWN_MS;
@@ -2468,6 +2501,9 @@ async function startScanner() {
         scannerDetectionInFlight = true;
         scannerLastDetectedCode = normalizedCode;
         scannerLastDetectedAt = now;
+        scannerCandidateCode = "";
+        scannerCandidateHits = 0;
+        scannerCandidateSeenAt = 0;
 
         clearScannerNoResultTimer();
         stopScanner();
@@ -2496,6 +2532,10 @@ function stopScanner() {
     Quagga.stop();
     state.scannerRunning = false;
   }
+
+  scannerCandidateCode = "";
+  scannerCandidateHits = 0;
+  scannerCandidateSeenAt = 0;
 
   elements.scannerModal.classList.add("hidden");
   elements.scannerViewport.innerHTML = "";
