@@ -8,6 +8,7 @@ import { errorHandler, notFoundHandler } from "./middlewares/errorHandler.js";
 import authRoutes from "./routes/authRoutes.js";
 import billingRoutes from "./routes/billingRoutes.js";
 import inventoryRoutes from "./routes/inventoryRoutes.js";
+import paymentSettingsRoutes from "./routes/paymentSettingsRoutes.js";
 import paymentsRoutes from "./routes/paymentsRoutes.js";
 import productsRoutes from "./routes/productsRoutes.js";
 import salesRoutes from "./routes/salesRoutes.js";
@@ -78,6 +79,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/products", productsRoutes);
 app.use("/api/billing", billingRoutes);
 app.use("/api/payments", paymentsRoutes);
+app.use("/api/payment", paymentSettingsRoutes);
 app.use("/api/sales", salesRoutes);
 app.use("/api/inventory", inventoryRoutes);
 

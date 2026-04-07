@@ -7,6 +7,7 @@ export function signAccessToken(user) {
       sub: String(user._id),
       role: user.role,
       username: user.username,
+      shopId: user.shopId,
     },
     env.jwtSecret,
     {

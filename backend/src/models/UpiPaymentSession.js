@@ -2,6 +2,13 @@ import mongoose from "mongoose";
 
 const upiPaymentSessionSchema = new mongoose.Schema(
   {
+    shopId: {
+      type: String,
+      required: true,
+      index: true,
+      trim: true,
+      maxlength: 120,
+    },
     sessionId: {
       type: String,
       required: true,

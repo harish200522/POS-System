@@ -21,3 +21,6 @@ test-results/
 Thumbs.db
 .vscode/
 .idea/
+
+# Local AI tooling data
+.refact/

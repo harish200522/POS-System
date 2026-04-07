@@ -28,7 +28,13 @@ const passwordValidator = body("password")
 
 router.post(
   "/bootstrap-admin",
-  [usernameValidator, passwordValidator, body("displayName").optional().trim().isLength({ max: 120 }), validateRequest],
+  [
+    usernameValidator,
+    passwordValidator,
+    body("displayName").optional().trim().isLength({ max: 120 }),
+    body("shopId").optional().trim().isLength({ min: 2, max: 120 }),
+    validateRequest,
+  ],
   bootstrapAdmin
 );
 

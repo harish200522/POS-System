@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import User from "../models/User.js";
+import { env } from "../config/env.js";
 import { ApiError, asyncHandler } from "../utils/errors.js";
 import { signAccessToken } from "../utils/jwt.js";
 
@@ -22,6 +23,7 @@ function toSafeUser(userDoc) {
     id: String(userDoc._id),
     username: userDoc.username,
     displayName: userDoc.displayName,
+    shopId: String(userDoc.shopId || env.defaultShopId),
     role: userDoc.role,
     isActive: userDoc.isActive,
     lastLoginAt: userDoc.lastLoginAt,
@@ -34,8 +36,24 @@ function normalizeUsername(username) {
   return String(username || "").trim().toLowerCase();
 }
 
-async function createUserInternal({ username, password, role = "cashier", displayName = "" }) {
+function normalizeShopId(shopId) {
+  return String(shopId || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "");
+}
+
+async function createUserInternal({
+  username,
+  password,
+  role = "cashier",
+  displayName = "",
+  shopId = env.defaultShopId,
+}) {
   const normalizedUsername = normalizeUsername(username);
+  const normalizedShopId = normalizeShopId(shopId) || env.defaultShopId;
 
   if (!normalizedUsername) {
     throw new ApiError(400, "username is required");
@@ -53,6 +71,7 @@ async function createUserInternal({ username, password, role = "cashier", displa
   const user = await User.create({
     username: normalizedUsername,
     displayName: String(displayName || "").trim(),
+    shopId: normalizedShopId,
     passwordHash,
     role,
     isActive: true,
@@ -67,12 +86,13 @@ export const bootstrapAdmin = asyncHandler(async (req, res) => {
     throw new ApiError(403, "Bootstrap is disabled after first user creation");
   }
 
-  const { username, password, displayName = "Admin" } = req.body;
+  const { username, password, displayName = "Admin", shopId = env.defaultShopId } = req.body;
   const user = await createUserInternal({
     username,
     password,
     displayName,
     role: "admin",
+    shopId,
   });
 
   const token = signAccessToken(user);
@@ -118,7 +138,7 @@ export const login = asyncHandler(async (req, res) => {
 
 export const getCurrentUser = asyncHandler(async (req, res) => {
   const user = await User.findById(req.auth.userId).select(
-    "_id username displayName role isActive lastLoginAt createdAt updatedAt"
+    "_id username displayName shopId role isActive lastLoginAt createdAt updatedAt"
   );
 
   if (!user || !user.isActive) {
@@ -144,6 +164,7 @@ export const createUser = asyncHandler(async (req, res) => {
     password,
     role: normalizedRole,
     displayName,
+    shopId: req.auth.shopId || env.defaultShopId,
   });
 
   return res.status(201).json({
@@ -189,7 +210,10 @@ export const resetUserPassword = asyncHandler(async (req, res) => {
 
   validatePasswordStrength(newPassword);
 
-  const user = await User.findById(userId);
+  const user = await User.findOne({
+    _id: userId,
+    shopId: req.auth.shopId || env.defaultShopId,
+  });
   if (!user) {
     throw new ApiError(404, "User not found");
   }
@@ -213,7 +237,8 @@ export const updateUserStatus = asyncHandler(async (req, res) => {
   const userId = String(req.params.id || "").trim();
   const isActive = req.body.isActive;
 
-  const user = await User.findById(userId);
+  const shopId = req.auth.shopId || env.defaultShopId;
+  const user = await User.findOne({ _id: userId, shopId });
   if (!user) {
     throw new ApiError(404, "User not found");
   }
@@ -224,6 +249,7 @@ export const updateUserStatus = asyncHandler(async (req, res) => {
 
   if (!isActive && user.role === "admin") {
     const activeAdminCount = await User.countDocuments({
+      shopId,
       role: "admin",
       isActive: true,
       _id: { $ne: user._id },
@@ -245,9 +271,9 @@ export const updateUserStatus = asyncHandler(async (req, res) => {
 });
 
 export const listUsers = asyncHandler(async (req, res) => {
-  const users = await User.find({}).sort({ createdAt: -1 }).select(
-    "_id username displayName role isActive lastLoginAt createdAt updatedAt"
-  );
+  const users = await User.find({ shopId: req.auth.shopId || env.defaultShopId })
+    .sort({ createdAt: -1 })
+    .select("_id username displayName shopId role isActive lastLoginAt createdAt updatedAt");
 
   return res.status(200).json({
     success: true,

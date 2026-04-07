@@ -588,6 +588,71 @@
               </div>
             </article>
           </div>
+
+          <article class="surface mt-5 p-4 md:p-5">
+            <h2 class="section-title">Payment Settings</h2>
+            <p class="section-subtitle">Configure dynamic UPI details for this shop. Checkout QR updates automatically.</p>
+
+            <form
+              id="payment-settings-form"
+              class="mt-4 space-y-3"
+            >
+              <label class="text-sm font-medium text-slate-700">
+                UPI ID
+                <input
+                  id="payment-upi-id"
+                  required
+                  type="text"
+                  placeholder="example@bank"
+                  class="field-input mt-1"
+                />
+              </label>
+
+              <label class="text-sm font-medium text-slate-700">
+                Optional QR Image
+                <input
+                  id="payment-qr-file"
+                  type="file"
+                  accept="image/*"
+                  class="field-input mt-1"
+                />
+              </label>
+
+              <p
+                id="payment-qr-hint"
+                class="text-xs text-slate-500"
+              >
+                Leave empty to use dynamic QR generated from UPI ID and bill amount.
+              </p>
+
+              <div
+                id="payment-qr-preview-wrap"
+                class="payment-qr-preview-wrap hidden"
+              >
+                <img
+                  id="payment-qr-preview"
+                  alt="Saved payment QR"
+                />
+              </div>
+
+              <div class="grid gap-2 sm:grid-cols-2">
+                <button
+                  id="payment-settings-save"
+                  class="primary-btn"
+                  type="submit"
+                >
+                  Save Payment Settings
+                </button>
+                <button
+                  id="payment-settings-remove-qr"
+                  class="secondary-btn"
+                  type="button"
+                >
+                  Remove Uploaded QR
+                </button>
+              </div>
+            </form>
+          </article>
         </section>
 
         <section
@@ -1044,11 +1109,11 @@
         <div class="upi-meta-grid">
           <div class="upi-meta-row">
             <span>Shop</span>
-            <strong id="upi-shop-name">CounterCraft POS</strong>
+            <strong id="upi-shop-name">Shop</strong>
           </div>
           <div class="upi-meta-row">
             <span>UPI ID</span>
-            <strong id="upi-id-value">hri41468@oksbi</strong>
+            <strong id="upi-id-value">-</strong>
           </div>
         </div>
 

@@ -59,8 +59,7 @@ function buildEnv() {
     razorpayKeyId: String(process.env.RAZORPAY_KEY_ID || "").trim(),
     razorpayKeySecret: String(process.env.RAZORPAY_KEY_SECRET || "").trim(),
     razorpayWebhookSecret: String(process.env.RAZORPAY_WEBHOOK_SECRET || "").trim(),
-    upiId: String(process.env.UPI_ID || "").trim(),
-    shopName: String(process.env.SHOP_NAME || "CounterCraft POS").trim() || "CounterCraft POS",
+    defaultShopId: String(process.env.DEFAULT_SHOP_ID || "default-shop").trim() || "default-shop",
     upiSessionTimeoutSec: asNumber(process.env.UPI_SESSION_TIMEOUT_SEC, 120),
   };
 

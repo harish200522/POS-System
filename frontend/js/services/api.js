@@ -114,4 +114,6 @@ export const api = {
   getLowStockProducts: (query) => request("/inventory/low-stock", { query }),
   getInventoryOverview: (query) => request("/inventory/overview", { query }),
   getInventoryLogs: (query) => request("/inventory/logs", { query }),
+  getPaymentSettings: () => request("/payment/settings"),
+  savePaymentSettings: (body) => request("/payment/settings", { method: "POST", body }),
 };

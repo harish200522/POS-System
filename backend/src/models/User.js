@@ -18,6 +18,14 @@ const userSchema = new mongoose.Schema(
       maxlength: 120,
       default: "",
     },
+    shopId: {
+      type: String,
+      required: true,
+      trim: true,
+      default: "default-shop",
+      maxlength: 120,
+      index: true,
+    },
     passwordHash: {
       type: String,
       required: true,

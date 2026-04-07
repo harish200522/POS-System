@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import Razorpay from "razorpay";
+import PaymentSettings from "../models/PaymentSettings.js";
 import Product from "../models/Product.js";
 import Sale from "../models/Sale.js";
 import UpiPaymentSession from "../models/UpiPaymentSession.js";
@@ -11,6 +12,8 @@ import { ApiError, asyncHandler } from "../utils/errors.js";
 const STATUS_POLL_INTERVAL_MS = 3000;
 const DEFAULT_UPI_SESSION_TIMEOUT_SEC = 120;
 const PROVIDER_MIN_EXPIRY_SEC = 600;
+const MAX_QR_IMAGE_LENGTH = 750000;
+const UPI_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{1,}@[a-zA-Z]{2,}$/;
 
 let razorpayClient = null;
 
@@ -23,14 +26,81 @@ function parsePositiveNumber(value, label) {
   return numberValue;
 }
 
-function getUpiConfiguration() {
-  if (!env.upiId) {
-    throw new ApiError(503, "UPI_ID is not configured");
+function normalizeShopId(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "");
+}
+
+function getRequestShopId(req) {
+  return normalizeShopId(req?.auth?.shopId || env.defaultShopId) || "default-shop";
+}
+
+function normalizeUpiId(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function assertValidUpiId(upiId) {
+  if (!UPI_ID_PATTERN.test(upiId)) {
+    throw new ApiError(400, "upiId must be a valid UPI ID (example: name@bank)");
+  }
+}
+
+function normalizeQrImage(value) {
+  const qrImage = String(value || "").trim();
+
+  if (!qrImage) {
+    return "";
+  }
+
+  if (qrImage.length > MAX_QR_IMAGE_LENGTH) {
+    throw new ApiError(400, "qrImage is too large");
+  }
+
+  const isDataImage = qrImage.startsWith("data:image/");
+  const isHttpUrl = /^https?:\/\/\S+$/i.test(qrImage);
+  if (!isDataImage && !isHttpUrl) {
+    throw new ApiError(400, "qrImage must be an image data URL or http(s) URL");
+  }
+
+  return qrImage;
+}
+
+function toPaymentSettingsPayload(settingsDoc, shopId) {
+  if (!settingsDoc) {
+    return {
+      shopId,
+      upiId: "",
+      qrImage: "",
+      configured: false,
+      createdAt: null,
+      updatedAt: null,
+    };
   }
 
   return {
-    upiId: env.upiId,
-    shopName: env.shopName,
+    shopId: settingsDoc.shopId,
+    upiId: settingsDoc.upiId,
+    qrImage: settingsDoc.qrImage || "",
+    configured: Boolean(settingsDoc.upiId),
+    createdAt: settingsDoc.createdAt,
+    updatedAt: settingsDoc.updatedAt,
+  };
+}
+
+async function getUpiConfigurationForShop(shopId) {
+  const settings = await PaymentSettings.findOne({ shopId }).select("shopId upiId qrImage");
+  if (!settings?.upiId) {
+    throw new ApiError(400, "Payment settings are not configured for this shop");
+  }
+
+  return {
+    upiId: settings.upiId,
+    qrImage: settings.qrImage || "",
+    shopName: shopId,
     currency: "INR",
   };
 }
@@ -66,8 +136,7 @@ function mapProviderStatus(providerStatus) {
   return "pending";
 }
 
-function buildStaticUpiLink(amount) {
-  const config = getUpiConfiguration();
+function buildStaticUpiLink(config, amount) {
   const params = new URLSearchParams({
     pa: config.upiId,
     pn: config.shopName,
@@ -101,6 +170,52 @@ function normalizeSession(session, sale = null) {
     sale,
   };
 }
+
+export const getPaymentSettings = asyncHandler(async (req, res) => {
+  const shopId = getRequestShopId(req);
+  const settings = await PaymentSettings.findOne({ shopId }).select("shopId upiId qrImage createdAt updatedAt");
+
+  return res.status(200).json({
+    success: true,
+    data: toPaymentSettingsPayload(settings, shopId),
+  });
+});
+
+export const upsertPaymentSettings = asyncHandler(async (req, res) => {
+  const shopId = getRequestShopId(req);
+  const upiId = normalizeUpiId(req.body?.upiId);
+  const qrImage = normalizeQrImage(req.body?.qrImage);
+
+  if (!upiId) {
+    throw new ApiError(400, "upiId is required");
+  }
+
+  assertValidUpiId(upiId);
+
+  const settings = await PaymentSettings.findOneAndUpdate(
+    { shopId },
+    {
+      $set: {
+        upiId,
+        qrImage,
+      },
+      $setOnInsert: {
+        shopId,
+      },
+    },
+    {
+      upsert: true,
+      new: true,
+      runValidators: true,
+    }
+  ).select("shopId upiId qrImage createdAt updatedAt");
+
+  return res.status(200).json({
+    success: true,
+    message: "Payment settings saved",
+    data: toPaymentSettingsPayload(settings, shopId),
+  });
+});
 
 async function buildBillingPreview(payload = {}) {
   const { items, tax = 0, discount = 0, cashier = "Default Cashier" } = payload;
@@ -239,8 +354,9 @@ export const createUpiPaymentSession = asyncHandler(async (req, res) => {
     );
   }
 
+  const shopId = getRequestShopId(req);
   const preview = await buildBillingPreview(req.body);
-  const upiConfig = getUpiConfiguration();
+  const upiConfig = await getUpiConfigurationForShop(shopId);
 
   const sessionId = `UPI-${Date.now()}-${Math.floor(Math.random() * 900000 + 100000)}`;
 
@@ -263,14 +379,16 @@ export const createUpiPaymentSession = asyncHandler(async (req, res) => {
     notes: {
       source: "countercraft-pos",
       sessionId,
+      shopId,
       cashier: String(preview.summary.cashier || "Default Cashier"),
     },
   });
 
-  const upiLink = buildStaticUpiLink(preview.summary.total);
+  const upiLink = buildStaticUpiLink(upiConfig, preview.summary.total);
   const providerPaymentUrl = paymentLink.short_url || upiLink;
 
   const session = await UpiPaymentSession.create({
+    shopId,
     sessionId,
     provider: "razorpay",
     providerPaymentLinkId: paymentLink.id,
@@ -297,7 +415,11 @@ export const createUpiPaymentSession = asyncHandler(async (req, res) => {
 });
 
 export const getUpiPaymentSessionStatus = asyncHandler(async (req, res) => {
-  const session = await UpiPaymentSession.findOne({ sessionId: String(req.params.sessionId || "").trim() });
+  const shopId = getRequestShopId(req);
+  const session = await UpiPaymentSession.findOne({
+    sessionId: String(req.params.sessionId || "").trim(),
+    shopId,
+  });
 
   if (!session) {
     throw new ApiError(404, "UPI payment session not found");
@@ -314,8 +436,9 @@ export const getUpiPaymentSessionStatus = asyncHandler(async (req, res) => {
 });
 
 export const completeUpiPaymentSession = asyncHandler(async (req, res) => {
+  const shopId = getRequestShopId(req);
   const sessionId = String(req.params.sessionId || "").trim();
-  let session = await UpiPaymentSession.findOne({ sessionId });
+  let session = await UpiPaymentSession.findOne({ sessionId, shopId });
 
   if (!session) {
     throw new ApiError(404, "UPI payment session not found");

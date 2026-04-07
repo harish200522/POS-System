@@ -23,6 +23,13 @@ const state = {
   adminUsersLoaded: false,
   dashboardLoaded: false,
   historyLoaded: false,
+  paymentSettingsLoaded: false,
+  paymentSettings: {
+    shopId: "",
+    upiId: "",
+    qrImage: "",
+    configured: false,
+  },
   selectedProductId: null,
   scannerRunning: false,
   salesHistory: [],
@@ -129,6 +136,15 @@ const elements = {
   stockCancelButton: document.getElementById("stock-cancel"),
   stockSubmitButton: document.getElementById("stock-submit"),
 
+  paymentSettingsForm: document.getElementById("payment-settings-form"),
+  paymentUpiIdInput: document.getElementById("payment-upi-id"),
+  paymentQrFileInput: document.getElementById("payment-qr-file"),
+  paymentQrHint: document.getElementById("payment-qr-hint"),
+  paymentQrPreviewWrap: document.getElementById("payment-qr-preview-wrap"),
+  paymentQrPreview: document.getElementById("payment-qr-preview"),
+  paymentSettingsSaveButton: document.getElementById("payment-settings-save"),
+  paymentSettingsRemoveQrButton: document.getElementById("payment-settings-remove-qr"),
+
   upiModal: document.getElementById("upi-modal"),
   upiAmountValue: document.getElementById("upi-amount-value"),
   upiShopName: document.getElementById("upi-shop-name"),
@@ -190,10 +206,13 @@ const KEYBOARD_WEDGE_CONFIG = {
   maxBufferLength: 64,
   minCodeLength: 3,
 };
+const SCAN_GUARD_CONFIG = {
+  cooldownMs: 1200,
+  duplicateWindowMs: 2200,
+};
 const UPI_CONFIG = {
-  upiId: "hri41468@oksbi",
-  shopName: "CounterCraft POS",
   currency: "INR",
+  defaultShopName: "Shop",
   sessionTimeoutMs: 2 * 60 * 1000,
 };
 
@@ -206,14 +225,19 @@ const modalFocusReturnMap = new WeakMap();
 
 let keyboardWedgeBuffer = "";
 let keyboardWedgeLastAt = 0;
+let scanGuardActive = false;
+let scanGuardTimeoutId = null;
+let lastScannedCode = "";
+let lastScannedAt = 0;
+let lastCartHighlightProductId = "";
+let cartHighlightTimeoutId = null;
+let eventsBound = false;
+let paymentQrMarkedForRemoval = false;
 
 const ROLE_TAB_ACCESS = {
   admin: ["pos", "admin", "dashboard", "history"],
   cashier: ["pos", "history"],
 };
-
-// Auto-status flow is enabled; if gateway credentials are missing, UI falls back to manual confirmation.
-const UPI_AUTO_STATUS_ENABLED = true;
 
 function formatCurrency(value) {
   return new Intl.NumberFormat("en-IN", {
@@ -734,6 +758,14 @@ async function logoutUser(message = "Logged out") {
 
   state.authUser = null;
   state.authReady = false;
+  state.paymentSettingsLoaded = false;
+  state.paymentSettings = {
+    shopId: "",
+    upiId: "",
+    qrImage: "",
+    configured: false,
+  };
+  paymentQrMarkedForRemoval = false;
   setAccessToken("");
   updateAuthBadge();
   applyRoleAccess();
@@ -830,10 +862,110 @@ function buildCheckoutPayload(checkoutContext) {
   };
 }
 
-function buildUpiPaymentLink(amount) {
+function normalizePaymentSettings(payload = {}) {
+  const normalizedUpiId = String(payload.upiId || "").trim().toLowerCase();
+
+  return {
+    shopId: String(payload.shopId || "").trim(),
+    upiId: normalizedUpiId,
+    qrImage: String(payload.qrImage || "").trim(),
+    configured: Boolean(payload.configured || normalizedUpiId),
+  };
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Unable to read selected image"));
+
+    reader.readAsDataURL(file);
+  });
+}
+
+function updatePaymentSettingsState(settingsData = {}) {
+  state.paymentSettings = {
+    ...state.paymentSettings,
+    ...normalizePaymentSettings(settingsData),
+  };
+  state.paymentSettingsLoaded = true;
+}
+
+function renderPaymentSettingsForm() {
+  if (!elements.paymentSettingsForm || !elements.paymentUpiIdInput) {
+    return;
+  }
+
+  elements.paymentUpiIdInput.value = state.paymentSettings.upiId;
+
+  const hasSavedQrImage = Boolean(state.paymentSettings.qrImage && !paymentQrMarkedForRemoval);
+  if (elements.paymentQrPreviewWrap && elements.paymentQrPreview) {
+    elements.paymentQrPreviewWrap.classList.toggle("hidden", !hasSavedQrImage);
+    if (hasSavedQrImage) {
+      elements.paymentQrPreview.src = state.paymentSettings.qrImage;
+    } else {
+      elements.paymentQrPreview.removeAttribute("src");
+    }
+  }
+
+  if (elements.paymentQrHint) {
+    elements.paymentQrHint.textContent = hasSavedQrImage
+      ? "Saved QR image is active for UPI checkout."
+      : "Leave empty to use dynamic QR generated from UPI ID and bill amount.";
+  }
+
+  if (elements.paymentSettingsRemoveQrButton) {
+    elements.paymentSettingsRemoveQrButton.disabled = !hasSavedQrImage;
+  }
+}
+
+async function loadPaymentSettings({ silent = false } = {}) {
+  try {
+    const response = await api.getPaymentSettings();
+    updatePaymentSettingsState(response?.data || {});
+    paymentQrMarkedForRemoval = false;
+    renderPaymentSettingsForm();
+    return state.paymentSettings;
+  } catch (error) {
+    state.paymentSettingsLoaded = false;
+    if (!silent) {
+      showToast(error.message || "Unable to load payment settings", "error");
+    }
+    return null;
+  }
+}
+
+async function ensurePaymentSettingsLoaded() {
+  if (state.paymentSettingsLoaded) {
+    return state.paymentSettings;
+  }
+
+  return loadPaymentSettings({ silent: true });
+}
+
+async function resolveQrImageFromFormInput() {
+  const selectedFile = elements.paymentQrFileInput?.files?.[0] || null;
+  if (selectedFile) {
+    return readFileAsDataUrl(selectedFile);
+  }
+
+  if (paymentQrMarkedForRemoval) {
+    return "";
+  }
+
+  return state.paymentSettings.qrImage || "";
+}
+
+function buildUpiPaymentLink(amount, upiId, shopName = UPI_CONFIG.defaultShopName) {
+  const payeeAddress = String(upiId || "").trim().toLowerCase();
+  if (!payeeAddress) {
+    return "";
+  }
+
   const params = new URLSearchParams({
-    pa: UPI_CONFIG.upiId,
-    pn: UPI_CONFIG.shopName,
+    pa: payeeAddress,
+    pn: String(shopName || UPI_CONFIG.defaultShopName).trim() || UPI_CONFIG.defaultShopName,
     am: Number(amount || 0).toFixed(2),
     cu: UPI_CONFIG.currency,
   });
@@ -848,7 +980,19 @@ function clearUpiStatusPollTimer() {
   }
 }
 
-function renderUpiQrCode(upiPaymentLink) {
+function renderUpiQrCode(upiPaymentLink, qrImage = "") {
+  const uploadedQrImage = String(qrImage || "").trim();
+  if (uploadedQrImage) {
+    state.upiQrRenderToken += 1;
+    elements.upiQrRoot.innerHTML = "";
+
+    const imageElement = document.createElement("img");
+    imageElement.src = uploadedQrImage;
+    imageElement.alt = "UPI QR";
+    elements.upiQrRoot.appendChild(imageElement);
+    return;
+  }
+
   const renderToken = (state.upiQrRenderToken += 1);
   elements.upiQrRoot.innerHTML = "";
   elements.upiQrRoot.innerHTML =
@@ -878,12 +1022,19 @@ function renderUpiQrCode(upiPaymentLink) {
 }
 
 function refreshUpiModalContentFromSession(sessionData) {
-  const fallbackLink = buildUpiPaymentLink(sessionData.amount || 0);
+  const fallbackLink = buildUpiPaymentLink(
+    sessionData.amount || 0,
+    sessionData.upiId,
+    sessionData.shopName || UPI_CONFIG.defaultShopName
+  );
   elements.upiAmountValue.textContent = formatCurrency(sessionData.amount || 0);
-  elements.upiShopName.textContent = sessionData.shopName || UPI_CONFIG.shopName;
-  elements.upiIdValue.textContent = sessionData.upiId || UPI_CONFIG.upiId;
+  elements.upiShopName.textContent = sessionData.shopName || UPI_CONFIG.defaultShopName;
+  elements.upiIdValue.textContent = sessionData.upiId || "-";
   elements.upiOpenAppLink.href = sessionData.upiLink || fallbackLink;
-  renderUpiQrCode(sessionData.qrValue || sessionData.paymentUrl || sessionData.upiLink || fallbackLink);
+  renderUpiQrCode(
+    sessionData.qrValue || sessionData.paymentUrl || sessionData.upiLink || fallbackLink,
+    sessionData.qrImage || ""
+  );
 }
 
 function closeUpiModal({ resetCheckout = true } = {}) {
@@ -944,140 +1095,21 @@ async function completeUpiPayment(completionSource = "manual_confirm") {
   }
 
   const pendingCheckout = state.pendingUpiCheckout;
+  closeUpiModal({ resetCheckout: false });
+  const result = await completeCheckout(pendingCheckout.context, pendingCheckout.payload, {
+    successMessage: "UPI payment successful",
+    offlineMessage: "UPI transaction saved offline. It will sync when online.",
+  });
 
-  if (!pendingCheckout.sessionId) {
-    closeUpiModal({ resetCheckout: false });
-    const result = await completeCheckout(pendingCheckout.context, pendingCheckout.payload, {
-      successMessage: "UPI payment successful",
-      offlineMessage: "UPI transaction saved offline. It will sync when online.",
-    });
-
-    if (result.success) {
-      state.pendingUpiCheckout = null;
-      return result;
-    }
-
-    openUpiModal(pendingCheckout.context);
-    setUpiPaymentStatus("Payment failed. Retry or cancel.", "error");
-    setUpiActionButtonsState({ disabled: false, label: "Payment Done" });
+  if (result.success) {
+    state.pendingUpiCheckout = null;
     return result;
   }
 
-  if (state.upiAutoCompleting) {
-    return { success: false, message: "UPI completion already in progress" };
-  }
-
-  state.upiAutoCompleting = true;
-  setUpiActionButtonsState({ disabled: true, label: "Processing..." });
-  setUpiPaymentStatus("Confirming payment...", "waiting");
-
-  try {
-    const completionResponse = await api.completeUpiSession(pendingCheckout.sessionId, {
-      completionSource,
-    });
-
-    const sale = completionResponse.data?.sale;
-    if (!sale) {
-      throw new Error("Unable to finalize UPI sale");
-    }
-
-    closeUpiModal();
-    showToast("UPI payment successful", "success");
-    openBillModal(sale, false);
-    clearCart();
-    await loadProducts();
-    await loadSalesHistory();
-    await loadDashboard();
-    await loadLowStockAlert();
-    updatePendingBadge();
-
-    return { success: true };
-  } catch (error) {
-    if (error.status === 400) {
-      setUpiPaymentStatus("Waiting for payment confirmation...", "waiting");
-      showToast("Payment not confirmed yet. Please wait.", "warning");
-    } else {
-      setUpiPaymentStatus("Payment verification failed. Retry.", "error");
-      showToast(error.message || "Unable to verify UPI payment", "error");
-    }
-
-    return { success: false, error };
-  } finally {
-    state.upiAutoCompleting = false;
-    if (state.upiModalOpen) {
-      setUpiActionButtonsState({ disabled: false, label: "Payment Done" });
-    }
-  }
-}
-
-function startUpiStatusPolling() {
-  clearUpiStatusPollTimer();
-
-  if (!state.pendingUpiCheckout?.sessionId) {
-    return;
-  }
-
-  const pollIntervalMs = Math.max(Number(state.pendingUpiCheckout.pollEveryMs) || 3000, 1500);
-
-  const pollStatus = async () => {
-    if (!state.upiModalOpen || !state.pendingUpiCheckout?.sessionId) {
-      clearUpiStatusPollTimer();
-      return;
-    }
-
-    try {
-      const statusResponse = await api.getUpiSessionStatus(state.pendingUpiCheckout.sessionId);
-      const session = statusResponse.data;
-
-      state.pendingUpiCheckout.sessionSnapshot = session;
-      refreshUpiModalContentFromSession(session);
-
-      if (session.expiresAt) {
-        const expiresAtMs = new Date(session.expiresAt).getTime();
-        if (Math.abs(expiresAtMs - state.upiExpiresAt) > 1000) {
-          startUpiCountdown(expiresAtMs);
-        }
-      }
-
-      if (session.status === "paid") {
-        setUpiPaymentStatus("Payment successful. Finalizing bill...", "success");
-        await completeUpiPayment("auto_poll");
-        return;
-      }
-
-      if (session.status === "completed") {
-        setUpiPaymentStatus("Payment completed", "success");
-        return;
-      }
-
-      if (session.status === "cancelled") {
-        setUpiPaymentStatus("Payment cancelled", "error");
-        clearUpiStatusPollTimer();
-        return;
-      }
-
-      if (session.status === "expired") {
-        setUpiPaymentStatus("Payment session expired", "error");
-        clearUpiStatusPollTimer();
-        return;
-      }
-
-      if (session.status === "failed") {
-        setUpiPaymentStatus("Payment failed. Retry with a new QR.", "error");
-        clearUpiStatusPollTimer();
-        return;
-      }
-
-      setUpiPaymentStatus("Waiting for payment...", "waiting");
-    } catch (error) {
-      setUpiPaymentStatus("Unable to fetch status. Waiting...", "waiting");
-    }
-  };
-
-  void pollStatus();
-  state.upiStatusPollIntervalId = window.setInterval(() => {
-    void pollStatus();
-  }, pollIntervalMs);
+  await openUpiModal(pendingCheckout.context);
+  setUpiPaymentStatus("Payment failed. Retry or cancel.", "error");
+  setUpiActionButtonsState({ disabled: false, label: "Payment Done" });
+  return result;
 }
 
 async function openUpiModal(checkoutContext = buildCheckoutContext("upi")) {
@@ -1088,6 +1120,16 @@ async function openUpiModal(checkoutContext = buildCheckoutContext("upi")) {
 
   if (checkoutContext.total <= 0) {
     showToast("Total amount must be greater than zero", "warning");
+    return;
+  }
+
+  const paymentSettings = await ensurePaymentSettingsLoaded();
+  const upiId = String(paymentSettings?.upiId || "").trim().toLowerCase();
+  if (!upiId) {
+    showToast("UPI is not configured. Ask admin to update Payment Settings.", "error");
+    if (state.authUser?.role === "admin") {
+      setActiveTab("admin");
+    }
     return;
   }
 
@@ -1105,13 +1147,17 @@ async function openUpiModal(checkoutContext = buildCheckoutContext("upi")) {
   setMobileCartOpen(false);
 
   const payload = buildCheckoutPayload(normalizedContext);
+  const shopName = String(paymentSettings?.shopId || UPI_CONFIG.defaultShopName).trim() || UPI_CONFIG.defaultShopName;
+  const upiLink = buildUpiPaymentLink(normalizedContext.total, upiId, shopName);
+
   const fallbackSessionData = {
     amount: normalizedContext.total,
-    upiId: UPI_CONFIG.upiId,
-    shopName: UPI_CONFIG.shopName,
-    upiLink: buildUpiPaymentLink(normalizedContext.total),
-    qrValue: buildUpiPaymentLink(normalizedContext.total),
-    pollEveryMs: 3000,
+    upiId,
+    shopName,
+    upiLink,
+    qrValue: upiLink,
+    qrImage: String(paymentSettings?.qrImage || ""),
+    pollEveryMs: 0,
     expiresAt: new Date(Date.now() + UPI_CONFIG.sessionTimeoutMs).toISOString(),
   };
 
@@ -1119,12 +1165,12 @@ async function openUpiModal(checkoutContext = buildCheckoutContext("upi")) {
     context: normalizedContext,
     payload,
     sessionId: null,
-    pollEveryMs: 3000,
+    pollEveryMs: 0,
     sessionSnapshot: fallbackSessionData,
   };
 
   refreshUpiModalContentFromSession(fallbackSessionData);
-  setUpiPaymentStatus("Waiting for payment...", "waiting");
+  setUpiPaymentStatus("Scan QR and pay. Then tap Payment Done.", "waiting");
   setUpiActionButtonsState({ disabled: false, label: "Payment Done" });
 
   state.upiModalOpen = true;
@@ -1135,37 +1181,6 @@ async function openUpiModal(checkoutContext = buildCheckoutContext("upi")) {
   requestAnimationFrame(() => {
     elements.upiModal.classList.add("modal-upi-visible");
   });
-
-  if (!UPI_AUTO_STATUS_ENABLED) {
-    setUpiPaymentStatus("Waiting for payment. Click Payment Done after transfer.", "waiting");
-    return;
-  }
-
-  try {
-    const sessionResponse = await api.createUpiSession(payload);
-    const session = sessionResponse.data;
-
-    if (!state.upiModalOpen) {
-      return;
-    }
-
-    state.pendingUpiCheckout = {
-      ...state.pendingUpiCheckout,
-      sessionId: session.sessionId,
-      pollEveryMs: session.pollEveryMs || 3000,
-      sessionSnapshot: session,
-    };
-
-    refreshUpiModalContentFromSession(session);
-    if (session.expiresAt) {
-      startUpiCountdown(new Date(session.expiresAt).getTime());
-    }
-    setUpiPaymentStatus("Waiting for payment...", "waiting");
-    startUpiStatusPolling();
-  } catch (error) {
-    setUpiPaymentStatus("Auto payment status unavailable. Confirm manually.", "error");
-    showToast(error.message || "UPI gateway unavailable. Use Payment Done after transfer.", "warning");
-  }
 }
 
 function cancelUpiPayment(message = "UPI payment cancelled. Cart is unchanged.") {
@@ -1332,6 +1347,58 @@ function handleKeyboardWedgeKeydown(event) {
     ? key
     : `${keyboardWedgeBuffer}${key}`.slice(-KEYBOARD_WEDGE_CONFIG.maxBufferLength);
   keyboardWedgeLastAt = now;
+}
+
+function isScannerSourceLabel(sourceLabel) {
+  return String(sourceLabel || "").trim().toLowerCase() === "scanned";
+}
+
+function isScanBlocked(normalizedCode) {
+  if (scanGuardActive) {
+    return true;
+  }
+
+  if (!normalizedCode) {
+    return false;
+  }
+
+  const now = Date.now();
+  return (
+    normalizedCode === lastScannedCode &&
+    now - lastScannedAt < SCAN_GUARD_CONFIG.duplicateWindowMs
+  );
+}
+
+function activateScanGuard(normalizedCode) {
+  scanGuardActive = true;
+  lastScannedCode = normalizedCode;
+  lastScannedAt = Date.now();
+
+  if (scanGuardTimeoutId) {
+    window.clearTimeout(scanGuardTimeoutId);
+  }
+
+  scanGuardTimeoutId = window.setTimeout(() => {
+    scanGuardActive = false;
+  }, SCAN_GUARD_CONFIG.cooldownMs);
+}
+
+function markCartProductAdded(productId) {
+  const normalizedProductId = String(productId || "");
+  if (!normalizedProductId) {
+    return;
+  }
+
+  lastCartHighlightProductId = normalizedProductId;
+
+  if (cartHighlightTimeoutId) {
+    window.clearTimeout(cartHighlightTimeoutId);
+  }
+
+  cartHighlightTimeoutId = window.setTimeout(() => {
+    lastCartHighlightProductId = "";
+    renderCart();
+  }, 900);
 }
 
 function normalizeProductEntry(product = {}) {
@@ -1514,6 +1581,10 @@ async function ensureTabData(tabName) {
     return;
   }
 
+  if (tabName === "admin" && state.authUser?.role === "admin") {
+    await loadPaymentSettings({ silent: false });
+  }
+
   if (tabName === "admin" && state.authUser?.role === "admin" && !state.adminUsersLoaded) {
     const loaded = await loadAdminUsers();
     state.adminUsersLoaded = loaded;
@@ -1609,6 +1680,8 @@ function setMobileCartOpen(isOpen) {
   if (shouldOpen && elements.mobileCartCloseButton) {
     elements.mobileCartCloseButton.focus();
   }
+
+  syncMobileCartRail();
 }
 
 function syncMobileCartRail() {
@@ -1622,10 +1695,11 @@ function syncMobileCartRail() {
   elements.mobileCartItemCount.textContent = `${itemCount} item${itemCount === 1 ? "" : "s"}`;
   elements.mobileCartTotalValue.textContent = formatCurrency(total);
 
-  const shouldShowRail = isMobileViewport() && state.activeTab === "pos" && itemCount > 0;
+  const railAllowed = isMobileViewport() && state.activeTab === "pos" && itemCount > 0;
+  const shouldShowRail = railAllowed && !state.mobileCartOpen;
   elements.mobileCartRail.classList.toggle("hidden", !shouldShowRail);
 
-  if (!shouldShowRail) {
+  if (!railAllowed && state.mobileCartOpen) {
     setMobileCartOpen(false);
   }
 }
@@ -1637,7 +1711,7 @@ function renderCart() {
     elements.cartList.innerHTML = state.cart
       .map(
         (item) => `
-        <div class="cart-row">
+        <div class="cart-row ${lastCartHighlightProductId === item.productId ? "cart-row-added" : ""}">
           <div>
             <p class="font-semibold text-slate-900">${item.name}</p>
             <p class="text-xs text-slate-500">${item.barcode}</p>
@@ -1891,7 +1965,7 @@ function populateProductForm(product) {
 function addToCart(product, quantity = 1) {
   if (!product || product.isActive === false) {
     showToast("This product is not available", "error");
-    return;
+    return false;
   }
 
   const existingItem = state.cart.find((item) => item.productId === product._id);
@@ -1899,7 +1973,7 @@ function addToCart(product, quantity = 1) {
 
   if (currentQty + quantity > product.stock) {
     showToast("Not enough stock available", "error");
-    return;
+    return false;
   }
 
   if (existingItem) {
@@ -1916,7 +1990,9 @@ function addToCart(product, quantity = 1) {
     });
   }
 
+  markCartProductAdded(product._id);
   renderCart();
+  return true;
 }
 
 function updateCartItem(productId, action) {
@@ -2190,12 +2266,14 @@ async function loadInitialData() {
   state.adminUsersLoaded = false;
   state.dashboardLoaded = false;
   state.historyLoaded = false;
+  state.paymentSettingsLoaded = false;
   state.products = [];
   state.salesHistory = [];
 
   renderAdminUsersTable();
 
   await loadProducts();
+  await loadPaymentSettings({ silent: true });
   await loadLowStockAlert();
   await syncPendingSales();
 }
@@ -2350,6 +2428,7 @@ async function resolveProductByBarcode(code) {
 async function applyScannedBarcode(code, sourceLabel = "Scanned") {
   const rawCode = String(code || "");
   const normalizedCode = normalizeBarcode(rawCode);
+  const scannerSource = isScannerSourceLabel(sourceLabel);
 
   logScannerDebug("Barcode captured", {
     source: sourceLabel,
@@ -2361,7 +2440,20 @@ async function applyScannedBarcode(code, sourceLabel = "Scanned") {
 
   if (!normalizedCode) {
     showToast("Product not found for scanned barcode", "warning");
-    return;
+    return false;
+  }
+
+  if (scannerSource && isScanBlocked(normalizedCode)) {
+    logScannerDebug("Scanner input ignored by cooldown/duplicate guard", {
+      source: sourceLabel,
+      normalizedCode,
+      normalizedLength: normalizedCode.length,
+    });
+    return false;
+  }
+
+  if (scannerSource) {
+    activateScanGuard(normalizedCode);
   }
 
   elements.searchInput.value = normalizedCode;
@@ -2381,9 +2473,17 @@ async function applyScannedBarcode(code, sourceLabel = "Scanned") {
       productName: resolvedProduct.name,
     });
 
-    addToCart(resolvedProduct, 1);
+    const added = addToCart(resolvedProduct, 1);
+    if (!added) {
+      return false;
+    }
+
     renderProductTable();
-    showToast(`${sourceLabel}: ${resolvedProduct.name}`, "success");
+    showToast(
+      scannerSource ? `Product added: ${resolvedProduct.name}` : `${sourceLabel}: ${resolvedProduct.name}`,
+      "success"
+    );
+    return true;
   } else {
     logScannerDebug("No product matched scanned barcode", {
       source: sourceLabel,
@@ -2392,6 +2492,7 @@ async function applyScannedBarcode(code, sourceLabel = "Scanned") {
       candidates: getBarcodeCandidates(normalizedCode),
     });
     showToast("Product not found for scanned barcode", "warning");
+    return false;
   }
 }
 
@@ -2478,9 +2579,10 @@ function ensureBarcodeScanner() {
         engine,
       });
 
-      await applyScannedBarcode(code, "Scanned");
+      await stopScanner();
       elements.scannerModal.classList.add("hidden");
       restoreModalFocus(elements.scannerModal);
+      await applyScannedBarcode(code, "Scanned");
       state.scannerRunning = false;
     },
   });
@@ -2510,6 +2612,12 @@ async function toggleScannerTorch() {
 }
 
 function bindEvents() {
+  if (eventsBound) {
+    return;
+  }
+
+  eventsBound = true;
+
   elements.tabButtons.forEach((button) => {
     button.addEventListener("click", () => {
       setActiveTab(button.dataset.tab);
@@ -2807,6 +2915,103 @@ function bindEvents() {
     });
   }
 
+  if (elements.paymentQrFileInput) {
+    elements.paymentQrFileInput.addEventListener("change", async () => {
+      const selectedFile = elements.paymentQrFileInput.files?.[0] || null;
+
+      if (!selectedFile) {
+        renderPaymentSettingsForm();
+        return;
+      }
+
+      paymentQrMarkedForRemoval = false;
+
+      try {
+        const previewData = await readFileAsDataUrl(selectedFile);
+        if (elements.paymentQrPreviewWrap && elements.paymentQrPreview) {
+          elements.paymentQrPreviewWrap.classList.remove("hidden");
+          elements.paymentQrPreview.src = previewData;
+        }
+
+        if (elements.paymentQrHint) {
+          elements.paymentQrHint.textContent = "Selected QR image will be saved when you click Save Payment Settings.";
+        }
+      } catch (error) {
+        showToast(error.message || "Unable to preview selected QR image", "error");
+      }
+    });
+  }
+
+  if (elements.paymentSettingsRemoveQrButton) {
+    elements.paymentSettingsRemoveQrButton.addEventListener("click", () => {
+      if (!state.paymentSettings.qrImage) {
+        return;
+      }
+
+      paymentQrMarkedForRemoval = true;
+      if (elements.paymentQrFileInput) {
+        elements.paymentQrFileInput.value = "";
+      }
+      renderPaymentSettingsForm();
+      showToast("Uploaded QR will be removed after saving settings", "info");
+    });
+  }
+
+  if (elements.paymentSettingsForm) {
+    elements.paymentSettingsForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      if (state.authUser?.role !== "admin") {
+        showToast("Only admins can update payment settings", "error");
+        return;
+      }
+
+      const upiId = String(elements.paymentUpiIdInput?.value || "").trim().toLowerCase();
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{1,}@[a-zA-Z]{2,}$/.test(upiId)) {
+        showToast("Enter a valid UPI ID (example: name@bank)", "error");
+        return;
+      }
+
+      const saveButton = elements.paymentSettingsSaveButton;
+      const removeButton = elements.paymentSettingsRemoveQrButton;
+      const previousLabel = saveButton?.textContent || "Save Payment Settings";
+
+      if (saveButton) {
+        saveButton.disabled = true;
+        saveButton.textContent = "Saving...";
+      }
+
+      if (removeButton) {
+        removeButton.disabled = true;
+      }
+
+      try {
+        const qrImage = await resolveQrImageFromFormInput();
+        const response = await api.savePaymentSettings({ upiId, qrImage });
+
+        updatePaymentSettingsState(response?.data || { upiId, qrImage, configured: true });
+        paymentQrMarkedForRemoval = false;
+        if (elements.paymentQrFileInput) {
+          elements.paymentQrFileInput.value = "";
+        }
+
+        renderPaymentSettingsForm();
+        showToast("Payment settings saved", "success");
+      } catch (error) {
+        showToast(error.message || "Unable to save payment settings", "error");
+      } finally {
+        if (saveButton) {
+          saveButton.disabled = false;
+          saveButton.textContent = previousLabel;
+        }
+
+        if (removeButton) {
+          removeButton.disabled = false;
+        }
+      }
+    });
+  }
+
   if (elements.resetPasswordCloseButton) {
     elements.resetPasswordCloseButton.addEventListener("click", () => {
       closeResetPasswordModal();
@@ -3079,6 +3284,7 @@ async function init() {
   updatePendingBadge();
   updateSyncInfo();
   bindEvents();
+  renderPaymentSettingsForm();
 
   renderCart();
   updateAuthBadge();

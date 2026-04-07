@@ -1,4 +1,5 @@
 import User from "../models/User.js";
+import { env } from "../config/env.js";
 import { ApiError } from "../utils/errors.js";
 import { verifyAccessToken } from "../utils/jwt.js";
 
@@ -24,7 +25,7 @@ export async function authenticate(req, res, next) {
       throw new ApiError(401, "Invalid authentication token");
     }
 
-    const user = await User.findById(userId).select("_id username displayName role isActive");
+    const user = await User.findById(userId).select("_id username displayName role isActive shopId");
 
     if (!user || !user.isActive) {
       throw new ApiError(401, "User is not authorized");
@@ -35,6 +36,7 @@ export async function authenticate(req, res, next) {
       username: user.username,
       displayName: user.displayName,
       role: user.role,
+      shopId: String(user.shopId || payload?.shopId || env.defaultShopId).trim() || env.defaultShopId,
     };
 
     return next();
