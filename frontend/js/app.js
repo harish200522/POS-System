@@ -1,5 +1,6 @@
 import { API_BASE_URL } from "./config.js";
 import { api, getAccessToken, setAccessToken } from "./services/api.js";
+import { createBarcodeScanner } from "./services/scanner.js";
 import {
   getCachedProducts,
   getLastSyncTimestamp,
@@ -105,7 +106,15 @@ const elements = {
   historyTableBody: document.getElementById("history-table-body"),
 
   scannerModal: document.getElementById("scanner-modal"),
+  scannerStage: document.getElementById("scanner-stage"),
   scannerViewport: document.getElementById("scanner-viewport"),
+  scannerStatus: document.getElementById("scanner-status"),
+  scannerLoading: document.getElementById("scanner-loading"),
+  scannerStartButton: document.getElementById("scanner-start"),
+  scannerStopButton: document.getElementById("scanner-stop"),
+  scannerTorchButton: document.getElementById("scanner-torch"),
+  scannerManualEntryButton: document.getElementById("scanner-manual-entry"),
+  scannerSearchNameButton: document.getElementById("scanner-search-name"),
   scannerCloseButton: document.getElementById("scanner-close"),
   barcodeModal: document.getElementById("barcode-modal"),
   barcodeForm: document.getElementById("barcode-form"),
@@ -162,25 +171,20 @@ const elements = {
   toastRoot: document.getElementById("toast-root"),
 };
 
-let scannerDetectedHandler = null;
-let scannerNoResultTimeoutId = null;
 let upiModalHideTimeoutId = null;
 let upiQrCodeInstance = null;
-let scannerLastDetectedCode = "";
-let scannerLastDetectedAt = 0;
-let scannerDetectionInFlight = false;
-let scannerCandidateCode = "";
-let scannerCandidateHits = 0;
-let scannerCandidateSeenAt = 0;
-const SCANNER_AUTO_FALLBACK_MS = 12000;
-const SCANNER_DETECTION_COOLDOWN_MS = 1200;
-const SCANNER_CONFIRMATION_HITS = 2;
-const SCANNER_CONFIRMATION_WINDOW_MS = 1800;
-const SCANNER_MIN_ACCEPTED_LENGTH = 4;
+let barcodeScanner = null;
 const MIN_PARTIAL_BARCODE_LENGTH = 6;
 const SCANNER_DEBUG_ENABLED =
   ["localhost", "127.0.0.1"].includes(window.location.hostname) ||
   window.localStorage.getItem("pos_debug_scanner") === "1";
+const SCANNER_CONFIG = {
+  noDetectionTimeoutMs: 14000,
+  successCooldownMs: 1300,
+  confirmationHits: 2,
+  confirmationWindowMs: 1800,
+  minAcceptedLength: 4,
+};
 const UPI_CONFIG = {
   upiId: "hri41468@oksbi",
   shopName: "CounterCraft POS",
@@ -190,7 +194,6 @@ const UPI_CONFIG = {
 
 const EXTERNAL_SCRIPT_URLS = {
   qrcode: "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js",
-  quagga: "https://unpkg.com/quagga@0.12.1/dist/quagga.min.js",
 };
 
 const externalScriptLoaders = new Map();
@@ -281,14 +284,6 @@ async function ensureQRCodeLoaded() {
   }
 }
 
-async function ensureQuaggaLoaded() {
-  try {
-    return await loadExternalScript(EXTERNAL_SCRIPT_URLS.quagga, "Quagga");
-  } catch (error) {
-    return null;
-  }
-}
-
 function isModalVisible(modalElement) {
   return Boolean(modalElement && !modalElement.classList.contains("hidden"));
 }
@@ -374,7 +369,7 @@ function closeModalByElement(modalElement) {
   }
 
   if (modalElement === elements.scannerModal) {
-    stopScanner();
+    closeScannerModal();
     return;
   }
 
@@ -722,7 +717,7 @@ async function logoutUser(message = "Logged out") {
   setMobileCartOpen(false);
 
   if (state.scannerRunning) {
-    stopScanner();
+    await closeScannerModal();
   }
 
   if (state.upiModalOpen) {
@@ -1233,27 +1228,6 @@ async function handleUpiPaymentDone() {
   await completeUpiPayment("manual_confirm");
 }
 
-function clearScannerNoResultTimer() {
-  if (scannerNoResultTimeoutId) {
-    window.clearTimeout(scannerNoResultTimeoutId);
-    scannerNoResultTimeoutId = null;
-  }
-}
-
-function startScannerNoResultTimer() {
-  clearScannerNoResultTimer();
-
-  scannerNoResultTimeoutId = window.setTimeout(() => {
-    if (!state.scannerRunning) {
-      return;
-    }
-
-    stopScanner();
-    showToast("No barcode detected in 12s. Switching to manual entry.", "warning");
-    promptManualBarcodeEntry();
-  }, SCANNER_AUTO_FALLBACK_MS);
-}
-
 function logScannerDebug(message, details = null) {
   if (!SCANNER_DEBUG_ENABLED) {
     return;
@@ -1421,6 +1395,10 @@ function setActiveTab(tabName) {
 
   if (tabName !== "pos") {
     setMobileCartOpen(false);
+
+    if (isModalVisible(elements.scannerModal)) {
+      void closeScannerModal();
+    }
   }
 
   elements.tabButtons.forEach((button) => {
@@ -2335,211 +2313,114 @@ function promptManualBarcodeEntry() {
   openBarcodeModal();
 }
 
-function getCameraErrorMessage(error) {
-  const errorName = String(error?.name || "");
-
-  if (errorName === "NotAllowedError" || errorName === "PermissionDeniedError") {
-    return "Camera permission denied. Allow camera access in browser settings.";
+function setScannerStatus(message, tone = "info") {
+  if (!elements.scannerStatus) {
+    return;
   }
 
-  if (errorName === "NotFoundError" || errorName === "DevicesNotFoundError") {
-    return "No camera device found on this system.";
+  elements.scannerStatus.textContent = String(message || "");
+  elements.scannerStatus.dataset.tone = String(tone || "info");
+}
+
+function openScannerModal() {
+  if (!elements.scannerModal) {
+    return;
   }
 
-  if (errorName === "NotReadableError" || errorName === "TrackStartError") {
-    return "Camera is busy in another app. Close it and try again.";
+  if (elements.scannerModal.classList.contains("hidden")) {
+    rememberModalFocus(elements.scannerModal);
   }
 
-  if (errorName === "SecurityError") {
-    return "Camera blocked by browser security policy. Use a secure context (HTTPS).";
+  elements.scannerModal.classList.remove("hidden");
+  setScannerStatus("Align barcode within the box and hold steady", "info");
+}
+
+async function stopScanner() {
+  if (barcodeScanner) {
+    await barcodeScanner.stop();
   }
 
-  return "Camera access failed. Check permissions or use manual barcode entry.";
+  state.scannerRunning = false;
+}
+
+async function closeScannerModal() {
+  await stopScanner();
+  elements.scannerModal.classList.add("hidden");
+  restoreModalFocus(elements.scannerModal);
+}
+
+function focusSearchFallbackFromScanner() {
+  void closeScannerModal().finally(() => {
+    setActiveTab("pos");
+    elements.searchInput.focus();
+    showToast("Type product name in Search Product as backup", "info");
+  });
+}
+
+function ensureBarcodeScanner() {
+  if (barcodeScanner) {
+    return barcodeScanner;
+  }
+
+  barcodeScanner = createBarcodeScanner({
+    stageElement: elements.scannerStage,
+    viewportElement: elements.scannerViewport,
+    statusElement: elements.scannerStatus,
+    loadingElement: elements.scannerLoading,
+    startButton: elements.scannerStartButton,
+    stopButton: elements.scannerStopButton,
+    torchButton: elements.scannerTorchButton,
+    debug: SCANNER_DEBUG_ENABLED,
+    ...SCANNER_CONFIG,
+    onStatus: (message, tone) => {
+      setScannerStatus(message, tone);
+    },
+    onError: (message) => {
+      showToast(message, "error");
+    },
+    onNoDetection: () => {
+      showToast("No barcode detected. Try better lighting or hold steady", "warning");
+      void closeScannerModal().finally(() => {
+        promptManualBarcodeEntry();
+      });
+    },
+    onDetected: async ({ code, rawValue, format, engine }) => {
+      logScannerDebug("Scanner accepted barcode", {
+        code,
+        rawValue,
+        format,
+        engine,
+      });
+
+      await applyScannedBarcode(code, "Scanned");
+      elements.scannerModal.classList.add("hidden");
+      restoreModalFocus(elements.scannerModal);
+      state.scannerRunning = false;
+    },
+  });
+
+  return barcodeScanner;
 }
 
 async function startScanner() {
-  if (state.scannerRunning) return;
+  openScannerModal();
 
-  const Quagga = await ensureQuaggaLoaded();
-  if (!Quagga) {
-    showToast("Scanner unavailable. Falling back to manual barcode entry.", "warning");
+  const scanner = ensureBarcodeScanner();
+  const started = await scanner.start();
+  state.scannerRunning = started;
+
+  if (!started) {
+    await closeScannerModal();
     promptManualBarcodeEntry();
-    return;
   }
-
-  if (!window.isSecureContext) {
-    showToast("Camera requires a secure context (HTTPS). Using manual entry.", "warning");
-    promptManualBarcodeEntry();
-    return;
-  }
-
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    showToast("Camera API not supported. Using manual barcode entry.", "warning");
-    promptManualBarcodeEntry();
-    return;
-  }
-
-  try {
-    const preflightStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: "environment" } },
-      audio: false,
-    });
-
-    preflightStream.getTracks().forEach((track) => track.stop());
-  } catch (error) {
-    showToast(getCameraErrorMessage(error), "error");
-    promptManualBarcodeEntry();
-    return;
-  }
-
-  rememberModalFocus(elements.scannerModal);
-  elements.scannerModal.classList.remove("hidden");
-
-  Quagga.init(
-    {
-      numOfWorkers: Math.min(navigator.hardwareConcurrency || 2, 4),
-      frequency: 10,
-      locator: {
-        patchSize: "medium",
-        halfSample: true,
-      },
-      inputStream: {
-        type: "LiveStream",
-        target: elements.scannerViewport,
-        constraints: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: "environment",
-        },
-      },
-      decoder: {
-        multiple: false,
-        readers: [
-          "ean_reader",
-          "ean_8_reader",
-          "upc_reader",
-          "upc_e_reader",
-          "code_128_reader",
-          "code_39_reader",
-        ],
-      },
-      locate: true,
-    },
-    (error) => {
-      if (error) {
-        elements.scannerModal.classList.add("hidden");
-        restoreModalFocus(elements.scannerModal);
-        showToast(getCameraErrorMessage(error), "error");
-        promptManualBarcodeEntry();
-        return;
-      }
-
-      Quagga.start();
-      state.scannerRunning = true;
-      scannerLastDetectedCode = "";
-      scannerLastDetectedAt = 0;
-      scannerDetectionInFlight = false;
-      scannerCandidateCode = "";
-      scannerCandidateHits = 0;
-      scannerCandidateSeenAt = 0;
-      startScannerNoResultTimer();
-
-      scannerDetectedHandler = (result) => {
-        const rawCode = String(result?.codeResult?.code || "");
-        const normalizedCode = normalizeBarcode(rawCode);
-
-        logScannerDebug("Scanner detection event", {
-          rawCode,
-          rawLength: rawCode.length,
-          normalizedCode,
-          normalizedLength: normalizedCode.length,
-          format: String(result?.codeResult?.format || ""),
-        });
-
-        if (!normalizedCode || normalizedCode.length < SCANNER_MIN_ACCEPTED_LENGTH) {
-          return;
-        }
-
-        const now = Date.now();
-        const withinConfirmationWindow =
-          now - scannerCandidateSeenAt <= SCANNER_CONFIRMATION_WINDOW_MS;
-
-        // Mobile camera reads can be noisy; require consistent repeated detections.
-        if (normalizedCode === scannerCandidateCode && withinConfirmationWindow) {
-          scannerCandidateHits += 1;
-        } else {
-          scannerCandidateCode = normalizedCode;
-          scannerCandidateHits = 1;
-        }
-
-        scannerCandidateSeenAt = now;
-
-        logScannerDebug("Scanner candidate confirmation", {
-          normalizedCode,
-          hits: scannerCandidateHits,
-          requiredHits: SCANNER_CONFIRMATION_HITS,
-          withinConfirmationWindow,
-        });
-
-        if (scannerCandidateHits < SCANNER_CONFIRMATION_HITS) {
-          return;
-        }
-
-        const duplicateDetected =
-          normalizedCode === scannerLastDetectedCode &&
-          now - scannerLastDetectedAt < SCANNER_DETECTION_COOLDOWN_MS;
-
-        if (scannerDetectionInFlight || duplicateDetected) {
-          logScannerDebug("Scanner detection ignored", {
-            reason: scannerDetectionInFlight ? "in-flight" : "duplicate",
-            normalizedCode,
-            sinceLastMs: now - scannerLastDetectedAt,
-          });
-          return;
-        }
-
-        scannerDetectionInFlight = true;
-        scannerLastDetectedCode = normalizedCode;
-        scannerLastDetectedAt = now;
-        scannerCandidateCode = "";
-        scannerCandidateHits = 0;
-        scannerCandidateSeenAt = 0;
-
-        clearScannerNoResultTimer();
-        stopScanner();
-
-        void applyScannedBarcode(rawCode, "Scanned").finally(() => {
-          scannerDetectionInFlight = false;
-        });
-      };
-
-      Quagga.onDetected(scannerDetectedHandler);
-    }
-  );
 }
 
-function stopScanner() {
-  clearScannerNoResultTimer();
-
-  const Quagga = window.Quagga;
-
-  if (Quagga && scannerDetectedHandler) {
-    Quagga.offDetected(scannerDetectedHandler);
-    scannerDetectedHandler = null;
+async function toggleScannerTorch() {
+  if (!barcodeScanner) {
+    return;
   }
 
-  if (state.scannerRunning && Quagga) {
-    Quagga.stop();
-    state.scannerRunning = false;
-  }
-
-  scannerCandidateCode = "";
-  scannerCandidateHits = 0;
-  scannerCandidateSeenAt = 0;
-
-  elements.scannerModal.classList.add("hidden");
-  elements.scannerViewport.innerHTML = "";
-  restoreModalFocus(elements.scannerModal);
+  await barcodeScanner.toggleTorch();
 }
 
 function bindEvents() {
@@ -3030,12 +2911,47 @@ function bindEvents() {
     });
   });
 
-  elements.scanButton.addEventListener("click", startScanner);
-  elements.scannerCloseButton.addEventListener("click", stopScanner);
+  elements.scanButton.addEventListener("click", () => {
+    void startScanner();
+  });
+
+  if (elements.scannerStartButton) {
+    elements.scannerStartButton.addEventListener("click", () => {
+      void startScanner();
+    });
+  }
+
+  if (elements.scannerStopButton) {
+    elements.scannerStopButton.addEventListener("click", () => {
+      void stopScanner();
+    });
+  }
+
+  if (elements.scannerTorchButton) {
+    elements.scannerTorchButton.addEventListener("click", () => {
+      void toggleScannerTorch();
+    });
+  }
+
+  if (elements.scannerManualEntryButton) {
+    elements.scannerManualEntryButton.addEventListener("click", () => {
+      void closeScannerModal().finally(() => {
+        promptManualBarcodeEntry();
+      });
+    });
+  }
+
+  if (elements.scannerSearchNameButton) {
+    elements.scannerSearchNameButton.addEventListener("click", focusSearchFallbackFromScanner);
+  }
+
+  elements.scannerCloseButton.addEventListener("click", () => {
+    void closeScannerModal();
+  });
 
   elements.scannerModal.addEventListener("click", (event) => {
     if (event.target === elements.scannerModal) {
-      stopScanner();
+      void closeScannerModal();
     }
   });
 

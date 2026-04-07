@@ -794,19 +794,90 @@
           >
             Scan Barcode
           </h3>
+          <div class="scanner-head-actions">
+            <button
+              id="scanner-start"
+              type="button"
+              class="primary-btn btn-inline"
+            >
+              Start Scan
+            </button>
+            <button
+              id="scanner-stop"
+              type="button"
+              class="secondary-btn btn-inline"
+              disabled
+            >
+              Stop Scan
+            </button>
+            <button
+              id="scanner-close"
+              type="button"
+              class="secondary-btn btn-inline"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+        <p class="section-subtitle mt-1">Align barcode within the box and hold steady.</p>
+
+        <div
+          id="scanner-stage"
+          class="scanner-stage mt-3"
+        >
+          <div
+            id="scanner-viewport"
+            class="scanner-box"
+          ></div>
+
+          <div
+            class="scanner-guide"
+            aria-hidden="true"
+          >
+            <div class="scanner-guide-corners"></div>
+            <div class="scanner-guide-line"></div>
+          </div>
+
+          <div
+            id="scanner-loading"
+            class="scanner-loading hidden"
+          >
+            Starting camera...
+          </div>
+        </div>
+
+        <p
+          id="scanner-status"
+          class="scanner-status mt-2"
+          data-tone="info"
+        >
+          Tap Start Scan to begin.
+        </p>
+
+        <div class="scanner-controls mt-3">
           <button
-            id="scanner-close"
+            id="scanner-torch"
+            type="button"
+            class="secondary-btn btn-inline"
+            disabled
+          >
+            Torch N/A
+          </button>
+          <button
+            id="scanner-manual-entry"
             type="button"
             class="secondary-btn btn-inline"
           >
-            Close
+            Enter Barcode
+          </button>
+          <button
+            id="scanner-search-name"
+            type="button"
+            class="secondary-btn btn-inline"
+          >
+            Search by Name
           </button>
         </div>
-        <p class="section-subtitle mt-1">Allow camera permission and point to barcode label.</p>
-        <div
-          id="scanner-viewport"
-          class="scanner-box mt-3"
-        ></div>
       </div>
     </div>
 
