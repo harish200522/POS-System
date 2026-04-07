@@ -4,8 +4,36 @@ import Product from "../models/Product.js";
 import Sale from "../models/Sale.js";
 import { getDateRange, roundCurrency } from "../utils/dateRange.js";
 import { ApiError, asyncHandler } from "../utils/errors.js";
+import { signInvoiceShareToken, verifyInvoiceShareToken } from "../utils/invoiceToken.js";
 
 export const PAYMENT_METHODS = ["cash", "upi"];
+
+function mapSaleToPublicInvoiceRecord(sale) {
+  return {
+    invoiceId: String(sale?._id || ""),
+    billNumber: String(sale?.billNumber || ""),
+    createdAt: sale?.createdAt ? new Date(sale.createdAt).toISOString() : new Date().toISOString(),
+    items: Array.isArray(sale?.items)
+      ? sale.items.map((item) => ({
+          name: String(item?.name || "Item"),
+          barcode: String(item?.barcode || ""),
+          quantity: Number(item?.quantity) || 0,
+          unitPrice: Number(item?.unitPrice) || 0,
+          lineTotal: Number(item?.lineTotal) || 0,
+        }))
+      : [],
+    subtotal: Number(sale?.subtotal) || 0,
+    tax: Number(sale?.tax) || 0,
+    discount: Number(sale?.discount) || 0,
+    total: Number(sale?.total) || 0,
+    paymentMethod: String(sale?.paymentMethod || "cash").toLowerCase(),
+    paidAmount: Number(sale?.paidAmount) || 0,
+    changeDue: Number(sale?.changeDue) || 0,
+    cashier: String(sale?.cashier || "Default Cashier"),
+    source: String(sale?.source || "online"),
+    isOffline: String(sale?.source || "online") === "offline_sync",
+  };
+}
 
 function parsePositiveNumber(value) {
   const numberValue = Number(value);
@@ -231,6 +259,70 @@ export const processBilling = asyncHandler(async (req, res) => {
     success: true,
     message: "Billing processed successfully",
     data: sale,
+  });
+});
+
+export const createInvoiceShareToken = asyncHandler(async (req, res) => {
+  const invoiceId = String(req.params.invoiceId || "").trim();
+  if (!mongoose.Types.ObjectId.isValid(invoiceId)) {
+    throw new ApiError(400, "Invalid invoiceId");
+  }
+
+  const sale = await Sale.findById(invoiceId).select("_id billNumber");
+  if (!sale) {
+    throw new ApiError(404, "Invoice not found");
+  }
+
+  const signedToken = signInvoiceShareToken({
+    invoiceId: String(sale._id),
+    billNumber: sale.billNumber,
+  });
+
+  return res.status(200).json({
+    success: true,
+    data: {
+      invoiceId: String(sale._id),
+      token: signedToken.token,
+      expiresAt: signedToken.expiresAt,
+    },
+  });
+});
+
+export const getPublicInvoice = asyncHandler(async (req, res) => {
+  const invoiceId = String(req.params.invoiceId || "").trim();
+  const token = String(req.query.token || "").trim();
+
+  if (!token) {
+    throw new ApiError(400, "token query parameter is required");
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(invoiceId)) {
+    throw new ApiError(400, "Invalid invoiceId");
+  }
+
+  let verifiedToken;
+  try {
+    verifiedToken = verifyInvoiceShareToken(token);
+  } catch (error) {
+    if (error?.name === "TokenExpiredError") {
+      throw new ApiError(401, "Invoice link expired. Request a new share link.");
+    }
+
+    throw new ApiError(401, "Invalid invoice link token");
+  }
+
+  if (verifiedToken.invoiceId !== invoiceId) {
+    throw new ApiError(403, "Invoice link token does not match requested invoice");
+  }
+
+  const sale = await Sale.findById(invoiceId);
+  if (!sale) {
+    throw new ApiError(404, "Invoice not found");
+  }
+
+  return res.status(200).json({
+    success: true,
+    data: mapSaleToPublicInvoiceRecord(sale),
   });
 });
 

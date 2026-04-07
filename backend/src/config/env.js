@@ -41,6 +41,8 @@ function buildEnv() {
   const port = asNumber(process.env.PORT, Number.NaN);
   const jwtSecret = String(process.env.JWT_SECRET || "").trim();
   const jwtExpiresIn = String(process.env.JWT_EXPIRES_IN || "8h").trim();
+  const invoiceTokenSecret = String(process.env.INVOICE_TOKEN_SECRET || jwtSecret).trim();
+  const invoiceTokenExpiresIn = String(process.env.INVOICE_TOKEN_EXPIRES_IN || "14d").trim();
 
   const config = {
     nodeEnv,
@@ -52,6 +54,8 @@ function buildEnv() {
     trustProxy,
     jwtSecret,
     jwtExpiresIn,
+    invoiceTokenSecret,
+    invoiceTokenExpiresIn,
     apiRateLimitWindowMs: asNumber(process.env.API_RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000),
     apiRateLimitMax: asNumber(process.env.API_RATE_LIMIT_MAX, 300),
     authRateLimitWindowMs: asNumber(process.env.AUTH_RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000),
@@ -108,6 +112,14 @@ function validateEnv(config) {
 
     if (isPlaceholderSecret(config.jwtSecret)) {
       errors.push("JWT_SECRET cannot be a placeholder value");
+    }
+
+    if (config.invoiceTokenSecret.length < 32) {
+      errors.push("INVOICE_TOKEN_SECRET must be at least 32 characters in production");
+    }
+
+    if (isPlaceholderSecret(config.invoiceTokenSecret)) {
+      errors.push("INVOICE_TOKEN_SECRET cannot be a placeholder value");
     }
   }
 

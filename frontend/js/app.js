@@ -1,12 +1,17 @@
-import { API_BASE_URL } from "./config.js";
 import { api, getAccessToken, setAccessToken } from "./services/api.js";
 import { createBarcodeScanner } from "./services/scanner.js";
 import {
   getCachedProducts,
+  getInvoiceRecordById,
+  getLastCustomerPhone,
   getLastSyncTimestamp,
   getPendingSales,
+  getSavedCustomerPhones,
+  markInvoiceWhatsappSent,
   queuePendingSale,
+  rememberCustomerPhone,
   removePendingSale,
+  saveInvoiceRecord,
   setCachedProducts,
   setLastSyncTimestamp,
 } from "./services/storage.js";
@@ -51,15 +56,20 @@ const state = {
   setStockTargetProductId: "",
   setStockTargetProductName: "",
   mobileCartOpen: false,
+  theme: "light",
+  activeInvoice: null,
 };
 
 const elements = {
-  apiBaseText: document.getElementById("api-base"),
   syncInfo: document.getElementById("sync-info"),
   networkBadge: document.getElementById("network-badge"),
   pendingBadge: document.getElementById("pending-badge"),
   authUserBadge: document.getElementById("auth-user-badge"),
   logoutButton: document.getElementById("logout-button"),
+  quickNewSaleButton: document.getElementById("quick-new-sale"),
+  quickAddProductButton: document.getElementById("quick-add-product"),
+  quickSyncButton: document.getElementById("quick-sync"),
+  themeToggleButton: document.getElementById("theme-toggle-button"),
   appNav: document.getElementById("app-nav"),
   appMain: document.getElementById("app-main"),
   tabButtons: Array.from(document.querySelectorAll("[data-tab]")),
@@ -87,6 +97,7 @@ const elements = {
   cashierInput: document.getElementById("cashier-input"),
   paymentButtons: Array.from(document.querySelectorAll("[data-payment-method]")),
   checkoutButton: document.getElementById("checkout-button"),
+  checkoutStatusPill: document.getElementById("checkout-status-pill"),
   clearCartButton: document.getElementById("clear-cart-button"),
 
   lowStockAlert: document.getElementById("low-stock-alert"),
@@ -96,19 +107,21 @@ const elements = {
   productFormSubmit: document.getElementById("product-form-submit"),
   productFormCancel: document.getElementById("product-form-cancel"),
   productTableBody: document.getElementById("product-table-body"),
+  inventorySearchInput: document.getElementById("inventory-search-input"),
+  inventoryStatusFilter: document.getElementById("inventory-status-filter"),
+  inventorySortSelect: document.getElementById("inventory-sort-select"),
   changePasswordForm: document.getElementById("change-password-form"),
   currentPasswordInput: document.getElementById("current-password-input"),
   newPasswordInput: document.getElementById("new-password-input"),
   confirmPasswordInput: document.getElementById("confirm-password-input"),
   userRefreshButton: document.getElementById("user-refresh-button"),
   userTableBody: document.getElementById("user-table-body"),
+  userSearchInput: document.getElementById("user-search-input"),
+  userStatusFilter: document.getElementById("user-status-filter"),
 
   dashboardRangeButtons: Array.from(document.querySelectorAll("[data-range]")),
-  metricRevenue: document.getElementById("metric-revenue"),
-  metricTransactions: document.getElementById("metric-transactions"),
-  metricAvgBill: document.getElementById("metric-avg-bill"),
-  metricLowStock: document.getElementById("metric-low-stock"),
-  metricInventoryValue: document.getElementById("metric-inventory-value"),
+  dashboardMetricsGrid: document.getElementById("dashboard-metrics-grid"),
+  dashboardInsights: document.getElementById("dashboard-insights"),
   paymentBreakdown: document.getElementById("payment-breakdown"),
   trendChart: document.getElementById("trend-chart"),
   topProducts: document.getElementById("top-products"),
@@ -123,6 +136,8 @@ const elements = {
   historyReportStartDateInput: document.getElementById("history-report-start-date"),
   historyReportEndDateInput: document.getElementById("history-report-end-date"),
   historyReportPaymentMethodInput: document.getElementById("history-report-payment-method"),
+  historySearchInput: document.getElementById("history-search-input"),
+  historySortSelect: document.getElementById("history-sort-select"),
   historyExportCsvButton: document.getElementById("history-export-csv"),
   historyExportPdfButton: document.getElementById("history-export-pdf"),
 
@@ -173,7 +188,15 @@ const elements = {
   billModal: document.getElementById("bill-modal"),
   billContent: document.getElementById("bill-content"),
   billClose: document.getElementById("bill-close"),
+  billDownloadPdf: document.getElementById("bill-download-pdf"),
+  billCustomerPhoneInput: document.getElementById("bill-customer-phone"),
+  billPhoneSuggestions: document.getElementById("bill-phone-suggestions"),
+  billShareLink: document.getElementById("bill-share-link"),
+  billSendStatus: document.getElementById("bill-send-status"),
+  billWhatsapp: document.getElementById("bill-whatsapp"),
   billPrint: document.getElementById("bill-print"),
+
+  floatingNewSaleButton: document.getElementById("floating-new-sale"),
 
   authModal: document.getElementById("auth-modal"),
   authForm: document.getElementById("auth-form"),
@@ -230,6 +253,15 @@ const UPI_CONFIG = {
   sessionTimeoutMs: 2 * 60 * 1000,
 };
 
+const THEME_STORAGE_KEY = "countercraft_theme";
+
+const SHORTCUT_HINTS = {
+  scan: "F8",
+  checkout: "Ctrl+Enter",
+  search: "Ctrl+K",
+  newSale: "Alt+N",
+};
+
 const EXTERNAL_SCRIPT_URLS = {
   qrcode: "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js",
   jspdf: "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
@@ -255,12 +287,64 @@ const ROLE_TAB_ACCESS = {
   cashier: ["pos", "history"],
 };
 
+const DASHBOARD_LOW_STOCK_THRESHOLD = 5;
+
+const DASHBOARD_METRIC_CONFIG = [
+  {
+    key: "totalRevenue",
+    title: "Total Revenue",
+    description: "Gross sales collected in selected range",
+    tone: "revenue",
+    icon: "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M4 17l5-5 4 4 7-8' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/><path d='M18 8h2v2' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>",
+    format: (value) => formatCurrency(value),
+  },
+  {
+    key: "totalOrders",
+    title: "Total Orders",
+    description: "Completed transactions in selected range",
+    tone: "orders",
+    icon: "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M4 7h16M7 4v3m10-3v3M5 10h14v9H5z' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>",
+    format: (value) => formatNumber(value),
+  },
+  {
+    key: "avgOrderValue",
+    title: "Avg Order Value",
+    description: "Average amount billed per order",
+    tone: "avg",
+    icon: "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M4 19h16M7 15l3-3 3 2 4-5' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/><circle cx='7' cy='15' r='1.2'/><circle cx='10' cy='12' r='1.2'/><circle cx='13' cy='14' r='1.2'/><circle cx='17' cy='9' r='1.2'/></svg>",
+    format: (value) => formatCurrency(value),
+  },
+  {
+    key: "lowStockItems",
+    title: "Low Stock Items",
+    description: `Products below ${DASHBOARD_LOW_STOCK_THRESHOLD} units`,
+    tone: "low-stock",
+    icon: "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M12 3l9 16H3L12 3z' fill='none' stroke='currentColor' stroke-width='2' stroke-linejoin='round'/><path d='M12 9v5' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/><circle cx='12' cy='17' r='1'/></svg>",
+    format: (value) => formatNumber(value),
+  },
+  {
+    key: "stockValue",
+    title: "Stock Value",
+    description: "Current valuation of active inventory",
+    tone: "stock",
+    icon: "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M4 7l8-4 8 4-8 4-8-4zM4 7v10l8 4 8-4V7' fill='none' stroke='currentColor' stroke-width='2' stroke-linejoin='round'/></svg>",
+    format: (value) => formatCurrency(value),
+  },
+];
+
 function formatCurrency(value) {
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
+    minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   }).format(Number(value) || 0);
+}
+
+function formatNumber(value) {
+  return new Intl.NumberFormat("en-IN", {
+    maximumFractionDigits: 0,
+  }).format(Math.max(Number(value) || 0, 0));
 }
 
 function asNumber(value, fallback = 0) {
@@ -270,6 +354,377 @@ function asNumber(value, fallback = 0) {
 
 function isMobileViewport() {
   return window.matchMedia("(max-width: 768px)").matches;
+}
+
+function normalizeTheme(theme) {
+  return String(theme || "").toLowerCase() === "dark" ? "dark" : "light";
+}
+
+function resolveInitialTheme() {
+  const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+  if (storedTheme) {
+    return normalizeTheme(storedTheme);
+  }
+
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function applyTheme(theme, { persist = false } = {}) {
+  const normalizedTheme = normalizeTheme(theme);
+  state.theme = normalizedTheme;
+  document.documentElement.setAttribute("data-theme", normalizedTheme);
+
+  if (elements.themeToggleButton) {
+    const isDark = normalizedTheme === "dark";
+    elements.themeToggleButton.textContent = isDark ? "Light Mode" : "Dark Mode";
+    elements.themeToggleButton.setAttribute("aria-pressed", isDark ? "true" : "false");
+  }
+
+  if (persist) {
+    window.localStorage.setItem(THEME_STORAGE_KEY, normalizedTheme);
+  }
+}
+
+function toggleTheme() {
+  const nextTheme = state.theme === "dark" ? "light" : "dark";
+  applyTheme(nextTheme, { persist: true });
+  showToast(`${nextTheme === "dark" ? "Dark" : "Light"} mode enabled`, "success");
+}
+
+function setSectionLoading(targetElement, isLoading) {
+  if (!targetElement) {
+    return;
+  }
+
+  targetElement.classList.toggle("section-loading", Boolean(isLoading));
+}
+
+function setCheckoutButtonBusy(isBusy, label = "") {
+  if (!elements.checkoutButton) {
+    return;
+  }
+
+  if (!elements.checkoutButton.dataset.idleLabel) {
+    elements.checkoutButton.dataset.idleLabel = elements.checkoutButton.textContent || "Complete Checkout";
+  }
+
+  elements.checkoutButton.disabled = Boolean(isBusy);
+  elements.checkoutButton.textContent = isBusy
+    ? label || "Processing..."
+    : elements.checkoutButton.dataset.idleLabel || "Complete Checkout";
+}
+
+function updateCheckoutRuntimeStatus() {
+  if (!elements.checkoutStatusPill) {
+    return;
+  }
+
+  let nextClass = "runtime-pill-ready";
+  let nextLabel = "Ready to bill";
+
+  if (!navigator.onLine) {
+    nextClass = "runtime-pill-offline";
+    nextLabel = "Offline mode";
+  } else {
+    const pendingCount = getPendingSales().length;
+    if (pendingCount > 0) {
+      nextClass = "runtime-pill-pending";
+      nextLabel = `${pendingCount} pending sync`;
+    } else if (!state.cart.length) {
+      nextLabel = "Awaiting cart items";
+    } else {
+      nextLabel = "Ready to checkout";
+    }
+  }
+
+  elements.checkoutStatusPill.classList.remove("runtime-pill-ready", "runtime-pill-pending", "runtime-pill-offline");
+  elements.checkoutStatusPill.classList.add(nextClass);
+  elements.checkoutStatusPill.textContent = nextLabel;
+}
+
+function getRuntimeConfigValue(key) {
+  return String(window.__APP_CONFIG__?.[key] || "").trim();
+}
+
+function getShopProfile() {
+  const configuredShopName = getRuntimeConfigValue("SHOP_NAME");
+  const fallbackShopName = String(state.paymentSettings?.shopId || "").trim();
+
+  return {
+    name: configuredShopName || fallbackShopName || "CounterCraft POS",
+    address: getRuntimeConfigValue("SHOP_ADDRESS"),
+    phone: getRuntimeConfigValue("SHOP_PHONE"),
+    gstin: getRuntimeConfigValue("SHOP_GSTIN"),
+  };
+}
+
+function buildInvoiceIdFromSale(sale) {
+  const sourceId = String(sale?._id || sale?.billNumber || "").replace(/[^a-zA-Z0-9_-]/g, "");
+  if (sourceId) {
+    return sourceId;
+  }
+
+  return `INV-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`;
+}
+
+function buildInvoicePublicLink(invoiceId) {
+  const payloadToken = arguments.length > 1 ? String(arguments[1] || "").trim() : "";
+  const signedToken = arguments.length > 2 ? String(arguments[2] || "").trim() : "";
+  const configuredBase = getRuntimeConfigValue("BILL_PUBLIC_BASE_URL").replace(/\/$/, "");
+  const normalizedInvoiceId = String(invoiceId || "").trim();
+  const encodedId = encodeURIComponent(normalizedInvoiceId);
+
+  if (configuredBase) {
+    const shareUrl = `${configuredBase}/${encodedId}`;
+    const queryParams = new URLSearchParams();
+    if (signedToken) {
+      queryParams.set("token", signedToken);
+    } else if (payloadToken) {
+      queryParams.set("payload", payloadToken);
+    }
+
+    if (!queryParams.toString()) {
+      return shareUrl;
+    }
+
+    const separator = shareUrl.includes("?") ? "&" : "?";
+    return `${shareUrl}${separator}${queryParams.toString()}`;
+  }
+
+  const params = new URLSearchParams({
+    invoiceId: normalizedInvoiceId,
+  });
+
+  if (signedToken) {
+    params.set("token", signedToken);
+  } else if (payloadToken) {
+    params.set("payload", payloadToken);
+  }
+
+  const localBillUrl = new URL("./bill.html", window.location.href);
+  localBillUrl.search = params.toString();
+  return localBillUrl.toString();
+}
+
+function normalizeInvoiceItems(items = []) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  return items.map((item) => ({
+    name: String(item?.name || "Item"),
+    quantity: Math.max(asNumber(item?.quantity), 0),
+    unitPrice: Math.max(asNumber(item?.unitPrice), 0),
+    lineTotal: Math.max(asNumber(item?.lineTotal), 0),
+  }));
+}
+
+function createInvoicePayloadToken(invoiceRecord = {}) {
+  const payload = {
+    invoiceId: String(invoiceRecord.invoiceId || ""),
+    billNumber: String(invoiceRecord.billNumber || ""),
+    createdAt: String(invoiceRecord.createdAt || ""),
+    shop: invoiceRecord.shop || {},
+    items: normalizeInvoiceItems(invoiceRecord.items || []).slice(0, 250),
+    subtotal: Math.max(asNumber(invoiceRecord.subtotal), 0),
+    tax: Math.max(asNumber(invoiceRecord.tax), 0),
+    discount: Math.max(asNumber(invoiceRecord.discount), 0),
+    total: Math.max(asNumber(invoiceRecord.total), 0),
+    paymentMethod: String(invoiceRecord.paymentMethod || "cash"),
+    paidAmount: Math.max(asNumber(invoiceRecord.paidAmount), 0),
+    changeDue: Math.max(asNumber(invoiceRecord.changeDue), 0),
+    cashier: String(invoiceRecord.cashier || "Default Cashier"),
+  };
+
+  const jsonPayload = JSON.stringify(payload);
+  const utf8Payload = unescape(encodeURIComponent(jsonPayload));
+  const base64Payload = btoa(utf8Payload);
+  return base64Payload.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function createInvoiceRecordFromSale(sale = {}, { isOffline = false } = {}) {
+  const invoiceId = buildInvoiceIdFromSale(sale);
+  const normalizedItems = normalizeInvoiceItems(sale.items || []);
+  const createdAt = String(sale.createdAt || new Date().toISOString());
+  const invoiceRecord = {
+    invoiceId,
+    invoiceLink: "",
+    billNumber: String(sale.billNumber || invoiceId),
+    createdAt,
+    shop: getShopProfile(),
+    items: normalizedItems,
+    subtotal: Math.max(asNumber(sale.subtotal), 0),
+    tax: Math.max(asNumber(sale.tax), 0),
+    discount: Math.max(asNumber(sale.discount), 0),
+    total: Math.max(asNumber(sale.total), 0),
+    paymentMethod: String(sale.paymentMethod || "cash").toLowerCase(),
+    paidAmount: Math.max(asNumber(sale.paidAmount), 0),
+    changeDue: Math.max(asNumber(sale.changeDue), 0),
+    cashier: String(sale.cashier || "Default Cashier"),
+    source: String(sale.source || (isOffline ? "offline" : "online")),
+    isOffline,
+    customerPhone: "",
+    signedToken: "",
+    signedTokenExpiresAt: "",
+    sentViaWhatsapp: false,
+    sentAt: "",
+  };
+
+  const payloadToken = createInvoicePayloadToken(invoiceRecord);
+  invoiceRecord.sharePayload = payloadToken;
+  invoiceRecord.invoiceLink = buildInvoicePublicLink(invoiceId, payloadToken, "");
+
+  return invoiceRecord;
+}
+
+function isMongoObjectId(value) {
+  return /^[a-fA-F0-9]{24}$/.test(String(value || "").trim());
+}
+
+function buildInvoiceLinkFromRecord(invoiceRecord = {}) {
+  return buildInvoicePublicLink(
+    invoiceRecord.invoiceId,
+    String(invoiceRecord.sharePayload || "").trim(),
+    String(invoiceRecord.signedToken || "").trim()
+  );
+}
+
+async function ensureBackendSignedInvoiceLink(invoiceRecord, { forceRefresh = false } = {}) {
+  if (!invoiceRecord?.invoiceId || !navigator.onLine || !isMongoObjectId(invoiceRecord.invoiceId)) {
+    return invoiceRecord;
+  }
+
+  const existingToken = String(invoiceRecord.signedToken || "").trim();
+  if (existingToken && !forceRefresh) {
+    if (String(invoiceRecord.invoiceLink || "").trim()) {
+      return invoiceRecord;
+    }
+
+    return {
+      ...invoiceRecord,
+      invoiceLink: buildInvoiceLinkFromRecord(invoiceRecord),
+    };
+  }
+
+  try {
+    const response = await api.getInvoiceShareToken(invoiceRecord.invoiceId);
+    const signedToken = String(response?.data?.token || "").trim();
+
+    if (!signedToken) {
+      return invoiceRecord;
+    }
+
+    const securedInvoice = {
+      ...invoiceRecord,
+      signedToken,
+      signedTokenExpiresAt: String(response?.data?.expiresAt || "").trim(),
+      invoiceLink: buildInvoicePublicLink(
+        invoiceRecord.invoiceId,
+        String(invoiceRecord.sharePayload || "").trim(),
+        signedToken
+      ),
+    };
+
+    const persistedInvoice = saveInvoiceRecord(securedInvoice) || securedInvoice;
+
+    if (state.activeInvoice?.invoiceId === persistedInvoice.invoiceId) {
+      setBillActionContext(persistedInvoice);
+    }
+
+    return persistedInvoice;
+  } catch (error) {
+    return invoiceRecord;
+  }
+}
+
+function setBillSendStatus(message, tone = "neutral") {
+  if (!elements.billSendStatus) {
+    return;
+  }
+
+  elements.billSendStatus.textContent = String(message || "");
+  elements.billSendStatus.dataset.tone = String(tone || "neutral");
+}
+
+function renderBillPhoneSuggestions() {
+  if (!elements.billPhoneSuggestions) {
+    return;
+  }
+
+  const phoneOptions = getSavedCustomerPhones();
+  elements.billPhoneSuggestions.innerHTML = phoneOptions
+    .map((phone) => `<option value="${phone}"></option>`)
+    .join("");
+}
+
+function normalizeCustomerPhone(value) {
+  return String(value || "")
+    .trim()
+    .replace(/[^\d+]/g, "");
+}
+
+function resolveWhatsappPhoneNumber(value) {
+  const normalizedInput = normalizeCustomerPhone(value);
+  const digitsOnly = normalizedInput.replace(/\D/g, "");
+  const defaultCountryCode = getRuntimeConfigValue("WHATSAPP_DEFAULT_COUNTRY_CODE").replace(/\D/g, "") || "91";
+
+  if (normalizedInput.startsWith("+")) {
+    if (digitsOnly.length >= 8 && digitsOnly.length <= 15) {
+      return digitsOnly;
+    }
+
+    return "";
+  }
+
+  if (digitsOnly.length === 10) {
+    return `${defaultCountryCode}${digitsOnly}`;
+  }
+
+  if (digitsOnly.length >= 8 && digitsOnly.length <= 15) {
+    return digitsOnly;
+  }
+
+  return "";
+}
+
+function setBillActionContext(invoiceRecord) {
+  if (invoiceRecord?.invoiceId && !String(invoiceRecord.invoiceLink || "").trim()) {
+    const signedToken = String(invoiceRecord.signedToken || "").trim();
+    const sharePayload =
+      String(invoiceRecord.sharePayload || "").trim() || createInvoicePayloadToken(invoiceRecord);
+    invoiceRecord = {
+      ...invoiceRecord,
+      sharePayload,
+      invoiceLink: buildInvoicePublicLink(invoiceRecord.invoiceId, sharePayload, signedToken),
+    };
+  }
+
+  state.activeInvoice = invoiceRecord || null;
+
+  if (elements.billShareLink) {
+    const invoiceLink = String(invoiceRecord?.invoiceLink || "").trim();
+    elements.billShareLink.textContent = invoiceLink || "Link unavailable";
+    elements.billShareLink.href = invoiceLink || "#";
+  }
+
+  if (elements.billCustomerPhoneInput) {
+    const phoneValue = String(invoiceRecord?.customerPhone || getLastCustomerPhone() || "").trim();
+    elements.billCustomerPhoneInput.value = phoneValue;
+  }
+
+  if (invoiceRecord?.sentViaWhatsapp) {
+    const sentDate = invoiceRecord.sentAt ? new Date(invoiceRecord.sentAt).toLocaleString() : "";
+    setBillSendStatus(
+      sentDate
+        ? `Sent via WhatsApp on ${sentDate}`
+        : "Sent via WhatsApp",
+      "success"
+    );
+  } else {
+    setBillSendStatus("Not sent yet", "neutral");
+  }
+
+  renderBillPhoneSuggestions();
 }
 
 function loadExternalScript(url, globalName) {
@@ -761,6 +1216,318 @@ async function exportTablePdf({ title, subtitleLines, columns, rows, fileName })
   doc.save(fileName);
 }
 
+function triggerHapticFeedback(mode = "success") {
+  if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function") {
+    return;
+  }
+
+  const pattern = mode === "success" ? [20, 28, 26] : [16];
+
+  try {
+    navigator.vibrate(pattern);
+  } catch (error) {
+    // Ignore haptics errors on unsupported or restricted devices.
+  }
+}
+
+async function generateInvoiceQrDataUrl(invoiceLink) {
+  const normalizedLink = String(invoiceLink || "").trim();
+  if (!normalizedLink) {
+    return "";
+  }
+
+  const QRCode = await ensureQRCodeLoaded();
+  if (!QRCode) {
+    return "";
+  }
+
+  const renderHost = document.createElement("div");
+  renderHost.style.position = "fixed";
+  renderHost.style.left = "-10000px";
+  renderHost.style.top = "-10000px";
+  renderHost.style.width = "1px";
+  renderHost.style.height = "1px";
+  document.body.appendChild(renderHost);
+
+  try {
+    new QRCode(renderHost, {
+      text: normalizedLink,
+      width: 120,
+      height: 120,
+      colorDark: "#0f172a",
+      colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.M,
+    });
+
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, 40);
+    });
+
+    const imageElement = renderHost.querySelector("img");
+    if (imageElement?.src) {
+      return imageElement.src;
+    }
+
+    const canvasElement = renderHost.querySelector("canvas");
+    if (canvasElement && typeof canvasElement.toDataURL === "function") {
+      return canvasElement.toDataURL("image/png");
+    }
+
+    return "";
+  } finally {
+    renderHost.remove();
+  }
+}
+
+async function downloadBillPdfFile(invoiceRecord) {
+  const jsPDF = await ensurePdfLibrary();
+  const doc = new jsPDF({
+    orientation: "portrait",
+    unit: "pt",
+    format: "a4",
+  });
+
+  const createdAt = new Date(invoiceRecord.createdAt || Date.now());
+  const shop = invoiceRecord.shop || {};
+  const rows = Array.isArray(invoiceRecord.items)
+    ? invoiceRecord.items.map((item) => [
+        String(item.name || "-"),
+        String(item.quantity ?? 0),
+        formatCurrency(item.unitPrice || 0),
+        formatCurrency(item.lineTotal || 0),
+      ])
+    : [];
+
+  const qrDataUrl = await generateInvoiceQrDataUrl(invoiceRecord.invoiceLink);
+
+  doc.setFillColor(240, 253, 250);
+  doc.roundedRect(32, 24, 531, 110, 10, 10, "F");
+
+  doc.setTextColor(15, 23, 42);
+  doc.setFontSize(18);
+  doc.text(String(shop.name || "CounterCraft POS"), 42, 48);
+
+  doc.setFontSize(10);
+  let shopLineY = 64;
+  [shop.address, shop.phone ? `Phone: ${shop.phone}` : "", shop.gstin ? `GSTIN: ${shop.gstin}` : ""]
+    .filter(Boolean)
+    .forEach((line) => {
+      doc.text(String(line), 42, shopLineY);
+      shopLineY += 13;
+    });
+
+  doc.setFontSize(11);
+  doc.text(`Invoice No: ${invoiceRecord.billNumber || "-"}`, 558, 44, { align: "right" });
+  doc.text(`Date: ${createdAt.toLocaleString()}`, 558, 58, { align: "right" });
+  doc.text(`Cashier: ${invoiceRecord.cashier || "Default Cashier"}`, 558, 72, { align: "right" });
+  doc.text(`Payment: ${String(invoiceRecord.paymentMethod || "-").toUpperCase()}`, 558, 86, {
+    align: "right",
+  });
+
+  if (qrDataUrl) {
+    doc.addImage(qrDataUrl, "PNG", 448, 88, 92, 92);
+    doc.setFontSize(8);
+    doc.text("Scan for invoice link", 494, 188, { align: "center" });
+  }
+
+  doc.setFontSize(9);
+  doc.setTextColor(51, 65, 85);
+  doc.text(`Invoice Link: ${invoiceRecord.invoiceLink || "N/A"}`, 40, 154);
+  doc.setTextColor(15, 23, 42);
+
+  const autoTableInvoker =
+    typeof doc.autoTable === "function"
+      ? (options) => doc.autoTable(options)
+      : typeof window.jspdfAutoTable === "function"
+      ? (options) => window.jspdfAutoTable(doc, options)
+      : null;
+
+  if (!autoTableInvoker) {
+    throw new Error("Unable to load PDF table plugin");
+  }
+
+  autoTableInvoker({
+    startY: 168,
+    head: [["Item", "Qty", "Price", "Total"]],
+    body: rows,
+    theme: "striped",
+    styles: {
+      fontSize: 9,
+      cellPadding: 4,
+    },
+    headStyles: {
+      fillColor: [15, 118, 110],
+      textColor: [255, 255, 255],
+    },
+    margin: {
+      left: 40,
+      right: 40,
+    },
+  });
+
+  let footerY = doc.lastAutoTable?.finalY ? doc.lastAutoTable.finalY + 22 : 322;
+  const footerRows = [
+    ["Subtotal", formatCurrency(invoiceRecord.subtotal || 0)],
+    ["Tax", formatCurrency(invoiceRecord.tax || 0)],
+    ["Discount", formatCurrency(invoiceRecord.discount || 0)],
+    ["Total", formatCurrency(invoiceRecord.total || 0)],
+    ["Paid Amount", formatCurrency(invoiceRecord.paidAmount || 0)],
+    ["Change Due", formatCurrency(invoiceRecord.changeDue || 0)],
+  ];
+
+  doc.setFontSize(11);
+  footerRows.forEach(([label, value]) => {
+    doc.text(String(label), 40, footerY);
+    doc.text(String(value), 320, footerY, { align: "right" });
+    footerY += 16;
+  });
+
+  const safeBillNo = String(invoiceRecord.billNumber || invoiceRecord.invoiceId || "bill").replace(
+    /[^a-zA-Z0-9_-]/g,
+    "_"
+  );
+  doc.save(`invoice_${safeBillNo}.pdf`);
+}
+
+function buildBillWhatsappMessage(invoiceRecord) {
+  const createdAt = new Date(invoiceRecord.createdAt || Date.now());
+  const shopName = String(invoiceRecord.shop?.name || "CounterCraft POS");
+  const lines = [
+    `Hello! Thank you for your purchase from ${shopName}.`,
+    `Bill No: ${invoiceRecord.billNumber || "-"}`,
+    `Date: ${createdAt.toLocaleString()}`,
+    `Payment: ${String(invoiceRecord.paymentMethod || "-").toUpperCase()}`,
+    "",
+    "Bill summary:",
+  ];
+
+  const items = Array.isArray(invoiceRecord.items) ? invoiceRecord.items : [];
+  items.slice(0, 10).forEach((item) => {
+    lines.push(`- ${item.name || "Item"} x${item.quantity || 0} = ${formatCurrency(item.lineTotal || 0)}`);
+  });
+
+  if (items.length > 10) {
+    lines.push(`...and ${items.length - 10} more item(s)`);
+  }
+
+  lines.push("");
+  lines.push(`Total: ${formatCurrency(invoiceRecord.total || 0)}`);
+  lines.push(`Paid: ${formatCurrency(invoiceRecord.paidAmount || 0)}`);
+  lines.push(`Change: ${formatCurrency(invoiceRecord.changeDue || 0)}`);
+
+  if (invoiceRecord.invoiceLink) {
+    lines.push("");
+    lines.push(`You can download your bill here: ${invoiceRecord.invoiceLink}`);
+  }
+
+  return lines.join("\n");
+}
+
+async function handleBillPdfDownload() {
+  if (!state.activeInvoice) {
+    showToast("No completed bill available", "warning");
+    return;
+  }
+
+  const button = elements.billDownloadPdf;
+  const idleLabel = button?.textContent || "Download PDF";
+
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Generating PDF...";
+  }
+
+  try {
+    await downloadBillPdfFile(state.activeInvoice);
+    const updatedInvoice = saveInvoiceRecord({
+      ...state.activeInvoice,
+      pdfGeneratedAt: new Date().toISOString(),
+    });
+    if (updatedInvoice) {
+      setBillActionContext(updatedInvoice);
+    }
+    showToast("Invoice PDF downloaded", "success");
+  } catch (error) {
+    showToast(error.message || "Unable to download invoice PDF", "error");
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = idleLabel;
+    }
+  }
+}
+
+async function handleBillWhatsappShare() {
+  if (!state.activeInvoice) {
+    showToast("No completed bill available", "warning");
+    return;
+  }
+
+  const phoneInput = elements.billCustomerPhoneInput;
+  const rawPhone = String(phoneInput?.value || "").trim();
+  const normalizedPhone = normalizeCustomerPhone(rawPhone);
+  const resolvedPhone = resolveWhatsappPhoneNumber(rawPhone);
+
+  if (!resolvedPhone) {
+    showToast("Enter a valid WhatsApp phone number", "error");
+    phoneInput?.focus();
+    setBillSendStatus("Waiting for valid phone number", "warning");
+    return;
+  }
+
+  if (phoneInput) {
+    phoneInput.value = normalizedPhone;
+  }
+
+  rememberCustomerPhone(normalizedPhone);
+
+  let workingInvoice = state.activeInvoice;
+  if (navigator.onLine) {
+    setBillSendStatus("Securing share link...", "pending");
+    workingInvoice = await ensureBackendSignedInvoiceLink(workingInvoice);
+  }
+
+  const sharePayload =
+    String(workingInvoice?.sharePayload || "").trim() || createInvoicePayloadToken(workingInvoice);
+
+  const signedToken = String(workingInvoice?.signedToken || "").trim();
+
+  let invoiceRecord = saveInvoiceRecord({
+    ...workingInvoice,
+    customerPhone: normalizedPhone,
+    sharePayload,
+    invoiceLink: buildInvoicePublicLink(workingInvoice.invoiceId, sharePayload, signedToken),
+  });
+
+  if (!invoiceRecord) {
+    invoiceRecord = {
+      ...workingInvoice,
+      customerPhone: normalizedPhone,
+      sharePayload,
+      invoiceLink: buildInvoicePublicLink(workingInvoice.invoiceId, sharePayload, signedToken),
+    };
+  }
+
+  setBillActionContext(invoiceRecord);
+  setBillSendStatus("Link ready. Opening WhatsApp...", "pending");
+  showToast("Link ready", "success");
+
+  const message = buildBillWhatsappMessage(invoiceRecord);
+  const whatsappUrl = `https://wa.me/${resolvedPhone}?text=${encodeURIComponent(message)}`;
+  window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+  showToast("Opening WhatsApp", "info");
+
+  const sentInvoice = markInvoiceWhatsappSent(invoiceRecord.invoiceId, {
+    customerPhone: normalizedPhone,
+  });
+
+  if (sentInvoice) {
+    const refreshedInvoice = getInvoiceRecordById(sentInvoice.invoiceId) || sentInvoice;
+    setBillActionContext(refreshedInvoice);
+    setBillSendStatus("Sent via WhatsApp", "success");
+  }
+}
+
 
 function getPasswordValidationMessage(newPassword, confirmPassword) {
   const password = String(newPassword || "");
@@ -990,6 +1757,18 @@ function updateAuthBadge() {
   if (!user) {
     elements.authUserBadge.textContent = "Not signed in";
     elements.logoutButton.classList.add("hidden");
+    if (elements.quickNewSaleButton) {
+      elements.quickNewSaleButton.disabled = true;
+    }
+    if (elements.quickSyncButton) {
+      elements.quickSyncButton.disabled = true;
+    }
+    if (elements.quickAddProductButton) {
+      elements.quickAddProductButton.disabled = true;
+    }
+    if (elements.floatingNewSaleButton) {
+      elements.floatingNewSaleButton.disabled = true;
+    }
     return;
   }
 
@@ -998,6 +1777,22 @@ function updateAuthBadge() {
   elements.authUserBadge.textContent = `${displayName} (${role})`;
   elements.authUserBadge.classList.add(role === "admin" ? "auth-badge-admin" : "auth-badge-cashier");
   elements.logoutButton.classList.remove("hidden");
+
+  if (elements.quickNewSaleButton) {
+    elements.quickNewSaleButton.disabled = false;
+  }
+
+  if (elements.quickSyncButton) {
+    elements.quickSyncButton.disabled = false;
+  }
+
+  if (elements.quickAddProductButton) {
+    elements.quickAddProductButton.disabled = role !== "admin";
+  }
+
+  if (elements.floatingNewSaleButton) {
+    elements.floatingNewSaleButton.disabled = false;
+  }
 }
 
 function applyRoleAccess() {
@@ -1390,6 +2185,11 @@ async function completeUpiPayment(completionSource = "manual_confirm") {
   }
 
   const pendingCheckout = state.pendingUpiCheckout;
+  setUpiPaymentStatus("Payment received. Finalizing checkout...", "success");
+  setUpiActionButtonsState({ disabled: true, label: "Finalizing..." });
+  await new Promise((resolve) => {
+    window.setTimeout(resolve, 180);
+  });
   closeUpiModal({ resetCheckout: false });
   const result = await completeCheckout(pendingCheckout.context, pendingCheckout.payload, {
     successMessage: "UPI payment successful",
@@ -1491,6 +2291,7 @@ async function completeCheckout(checkoutContext, payload, messages = {}) {
     try {
       const response = await api.processBilling(payload);
       showToast(successMessage, "success");
+      triggerHapticFeedback("success");
       openBillModal(response.data, false);
       clearCart();
       await loadProducts();
@@ -1535,6 +2336,7 @@ async function completeCheckout(checkoutContext, payload, messages = {}) {
   };
 
   showToast(offlineMessage, "warning");
+  triggerHapticFeedback("success");
   openBillModal(offlineBill, true);
   clearCart();
   updatePendingBadge();
@@ -1642,6 +2444,102 @@ function handleKeyboardWedgeKeydown(event) {
     ? key
     : `${keyboardWedgeBuffer}${key}`.slice(-KEYBOARD_WEDGE_CONFIG.maxBufferLength);
   keyboardWedgeLastAt = now;
+}
+
+function focusProductSearch() {
+  setActiveTab("pos");
+  elements.searchInput.focus();
+  elements.searchInput.select();
+}
+
+function openAdminProductCreate() {
+  if (state.authUser?.role !== "admin") {
+    showToast("Only admins can add products", "warning");
+    return;
+  }
+
+  setActiveTab("admin");
+  requestAnimationFrame(() => {
+    elements.productForm?.querySelector('input[name="name"]')?.focus();
+  });
+}
+
+function handleGlobalShortcutKeydown(event) {
+  if (event.defaultPrevented) {
+    return;
+  }
+
+  if (getTopVisibleModal()) {
+    return;
+  }
+
+  if (!state.authReady) {
+    return;
+  }
+
+  const key = String(event.key || "").toLowerCase();
+  const ctrlOrMeta = event.ctrlKey || event.metaKey;
+
+  if (ctrlOrMeta && key === "k") {
+    event.preventDefault();
+    focusProductSearch();
+    return;
+  }
+
+  if (event.key === "F8") {
+    event.preventDefault();
+    setActiveTab("pos");
+    void startScanner();
+    return;
+  }
+
+  if (ctrlOrMeta && event.key === "Enter") {
+    event.preventDefault();
+    setActiveTab("pos");
+    void handleCheckout();
+    return;
+  }
+
+  if (!event.altKey || event.ctrlKey || event.metaKey) {
+    return;
+  }
+
+  if (key === "1") {
+    event.preventDefault();
+    setActiveTab("pos");
+    return;
+  }
+
+  if (key === "2") {
+    event.preventDefault();
+    setActiveTab("admin");
+    return;
+  }
+
+  if (key === "3") {
+    event.preventDefault();
+    setActiveTab("dashboard");
+    return;
+  }
+
+  if (key === "4") {
+    event.preventDefault();
+    setActiveTab("history");
+    return;
+  }
+
+  if (key === "n") {
+    event.preventDefault();
+    setActiveTab("pos");
+    clearCart();
+    showToast(`New sale started (${SHORTCUT_HINTS.newSale})`, "info");
+    return;
+  }
+
+  if (key === "a") {
+    event.preventDefault();
+    openAdminProductCreate();
+  }
 }
 
 function isScannerSourceLabel(sourceLabel) {
@@ -1819,6 +2717,7 @@ function updatePendingBadge() {
   const pendingCount = getPendingSales().length;
   elements.pendingBadge.textContent = `${pendingCount} pending`;
   elements.pendingBadge.classList.toggle("badge-attention", pendingCount > 0);
+  updateCheckoutRuntimeStatus();
 }
 
 function updateNetworkBadge() {
@@ -1831,6 +2730,8 @@ function updateNetworkBadge() {
     elements.networkBadge.classList.remove("badge-online");
     elements.networkBadge.classList.add("badge-offline");
   }
+
+  updateCheckoutRuntimeStatus();
 }
 
 function setActiveTab(tabName) {
@@ -1907,7 +2808,9 @@ function getFilteredProducts() {
     .filter(
       (product) =>
         product.isActive !== false &&
-        (product.name.toLowerCase().includes(term) || product.barcode.toLowerCase().includes(term))
+        (product.name.toLowerCase().includes(term) ||
+          product.barcode.toLowerCase().includes(term) ||
+          String(product.category || "").toLowerCase().includes(term))
     )
     .slice(0, 40);
 }
@@ -1990,7 +2893,15 @@ function syncMobileCartRail() {
   elements.mobileCartItemCount.textContent = `${itemCount} item${itemCount === 1 ? "" : "s"}`;
   elements.mobileCartTotalValue.textContent = formatCurrency(total);
 
-  const railAllowed = isMobileViewport() && state.activeTab === "pos" && itemCount > 0;
+  if (elements.mobileCartOpenButton) {
+    elements.mobileCartOpenButton.disabled = itemCount <= 0;
+  }
+
+  if (elements.mobileCartCheckoutButton) {
+    elements.mobileCartCheckoutButton.disabled = itemCount <= 0;
+  }
+
+  const railAllowed = isMobileViewport() && state.activeTab === "pos";
   const shouldShowRail = railAllowed && !state.mobileCartOpen;
   elements.mobileCartRail.classList.toggle("hidden", !shouldShowRail);
 
@@ -2039,6 +2950,8 @@ function renderCart() {
     setMobileCartOpen(false);
   }
 
+  updateCheckoutRuntimeStatus();
+
   if (state.upiModalOpen && state.pendingUpiCheckout?.context) {
     const activeTotal = Number(state.pendingUpiCheckout.context.total || 0);
     if (Math.abs(activeTotal - total) >= 0.01) {
@@ -2047,8 +2960,48 @@ function renderCart() {
   }
 }
 
+function getFilteredInventoryProducts() {
+  const searchTerm = String(elements.inventorySearchInput?.value || "")
+    .trim()
+    .toLowerCase();
+  const statusFilter = String(elements.inventoryStatusFilter?.value || "all").toLowerCase();
+  const sortOption = String(elements.inventorySortSelect?.value || "name-asc").toLowerCase();
+
+  let products = [...state.products];
+
+  if (searchTerm) {
+    products = products.filter((product) => {
+      const name = String(product?.name || "").toLowerCase();
+      const barcode = String(product?.barcode || "").toLowerCase();
+      const category = String(product?.category || "").toLowerCase();
+      return name.includes(searchTerm) || barcode.includes(searchTerm) || category.includes(searchTerm);
+    });
+  }
+
+  if (statusFilter === "active") {
+    products = products.filter((product) => product?.isActive !== false);
+  } else if (statusFilter === "inactive") {
+    products = products.filter((product) => product?.isActive === false);
+  } else if (statusFilter === "low-stock") {
+    products = products.filter(
+      (product) => product?.isActive !== false && Math.max(asNumber(product?.stock), 0) < DASHBOARD_LOW_STOCK_THRESHOLD
+    );
+  }
+
+  const sorters = {
+    "name-asc": (a, b) => String(a?.name || "").localeCompare(String(b?.name || "")),
+    "name-desc": (a, b) => String(b?.name || "").localeCompare(String(a?.name || "")),
+    "stock-asc": (a, b) => asNumber(a?.stock) - asNumber(b?.stock),
+    "stock-desc": (a, b) => asNumber(b?.stock) - asNumber(a?.stock),
+    "price-asc": (a, b) => asNumber(a?.price) - asNumber(b?.price),
+    "price-desc": (a, b) => asNumber(b?.price) - asNumber(a?.price),
+  };
+
+  return products.sort(sorters[sortOption] || sorters["name-asc"]);
+}
+
 function renderProductTable() {
-  const products = [...state.products].sort((a, b) => a.name.localeCompare(b.name));
+  const products = getFilteredInventoryProducts();
 
   if (!products.length) {
     elements.productTableBody.innerHTML =
@@ -2082,14 +3035,39 @@ function renderProductTable() {
     .join("");
 }
 
+function getFilteredAdminUsers() {
+  const searchTerm = String(elements.userSearchInput?.value || "")
+    .trim()
+    .toLowerCase();
+  const statusFilter = String(elements.userStatusFilter?.value || "all").toLowerCase();
+
+  let users = [...state.adminUsers];
+
+  if (searchTerm) {
+    users = users.filter((user) => {
+      const username = String(user?.username || "").toLowerCase();
+      const displayName = String(user?.displayName || "").toLowerCase();
+      return username.includes(searchTerm) || displayName.includes(searchTerm);
+    });
+  }
+
+  if (statusFilter === "active") {
+    users = users.filter((user) => Boolean(user?.isActive));
+  } else if (statusFilter === "inactive") {
+    users = users.filter((user) => !user?.isActive);
+  } else if (statusFilter === "admin" || statusFilter === "cashier") {
+    users = users.filter((user) => String(user?.role || "").toLowerCase() === statusFilter);
+  }
+
+  return users.sort((a, b) => String(a?.username || "").localeCompare(String(b?.username || "")));
+}
+
 function renderAdminUsersTable() {
   if (!elements.userTableBody) {
     return;
   }
 
-  const users = [...state.adminUsers].sort((a, b) =>
-    String(a.username || "").localeCompare(String(b.username || ""))
-  );
+  const users = getFilteredAdminUsers();
 
   if (!users.length) {
     elements.userTableBody.innerHTML =
@@ -2129,14 +3107,44 @@ function renderAdminUsersTable() {
     .join("");
 }
 
+function getFilteredHistorySales() {
+  const sales = Array.isArray(state.salesHistory) ? [...state.salesHistory] : [];
+  const searchTerm = String(elements.historySearchInput?.value || "")
+    .trim()
+    .toLowerCase();
+  const sortOption = String(elements.historySortSelect?.value || "newest").toLowerCase();
+
+  let filteredSales = sales;
+
+  if (searchTerm) {
+    filteredSales = filteredSales.filter((sale) => {
+      const billNumber = String(sale?.billNumber || "").toLowerCase();
+      const cashier = String(sale?.cashier || "").toLowerCase();
+      const paymentMethod = String(sale?.paymentMethod || "").toLowerCase();
+      return billNumber.includes(searchTerm) || cashier.includes(searchTerm) || paymentMethod.includes(searchTerm);
+    });
+  }
+
+  const sorters = {
+    newest: (a, b) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime(),
+    oldest: (a, b) => new Date(a?.createdAt || 0).getTime() - new Date(b?.createdAt || 0).getTime(),
+    highest: (a, b) => asNumber(b?.total) - asNumber(a?.total),
+    lowest: (a, b) => asNumber(a?.total) - asNumber(b?.total),
+  };
+
+  return filteredSales.sort(sorters[sortOption] || sorters.newest);
+}
+
 function renderHistoryTable() {
-  if (!state.salesHistory.length) {
+  const historyRows = getFilteredHistorySales();
+
+  if (!historyRows.length) {
     elements.historyTableBody.innerHTML =
       '<tr class="table-empty-row"><td colspan="6" class="px-4 py-4 text-center text-slate-500">No transactions found.</td></tr>';
     return;
   }
 
-  elements.historyTableBody.innerHTML = state.salesHistory
+  elements.historyTableBody.innerHTML = historyRows
     .map(
       (sale) => `
       <tr>
@@ -2170,51 +3178,459 @@ function renderLowStockAlert(lowStockProducts) {
   `;
 }
 
-function renderPaymentBreakdown(entries) {
-  if (!entries.length) {
-    elements.paymentBreakdown.innerHTML = '<p class="text-sm text-slate-500">No payment data available.</p>';
+function normalizePaymentBreakdownEntries(entries = []) {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+
+  return entries
+    .map((entry) => {
+      const key = String(entry?._id || entry?.paymentMethod || "").trim().toLowerCase();
+      return {
+        key: key || "other",
+        label: key ? key.toUpperCase() : "OTHER",
+        amount: Math.max(asNumber(entry?.amount), 0),
+        count: Math.max(asNumber(entry?.count), 0),
+      };
+    })
+    .filter((entry) => entry.amount > 0 || entry.count > 0)
+    .sort((a, b) => b.amount - a.amount);
+}
+
+function normalizeTrendEntries(trend = []) {
+  if (!Array.isArray(trend)) {
+    return [];
+  }
+
+  return trend
+    .map((entry) => ({
+      label: formatTrendLabel(entry?._id || entry?.label || ""),
+      revenue: Math.max(asNumber(entry?.revenue), 0),
+      transactions: Math.max(asNumber(entry?.transactions), 0),
+    }))
+    .filter((entry) => entry.label);
+}
+
+function formatTrendLabel(value) {
+  const label = String(value || "").trim();
+  if (!label) {
+    return "";
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(label)) {
+    const parsedDate = new Date(`${label}T00:00:00`);
+    if (!Number.isNaN(parsedDate.getTime())) {
+      return parsedDate.toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "short",
+      });
+    }
+  }
+
+  return label;
+}
+
+function formatTrendDelta(currentValue, previousValue, { inverse = false } = {}) {
+  const current = Math.max(asNumber(currentValue), 0);
+  const previous = Math.max(asNumber(previousValue), 0);
+
+  if (previous <= 0) {
+    if (current > 0) {
+      return {
+        text: "New activity in latest period",
+        tone: "up",
+      };
+    }
+
+    return {
+      text: "No comparison data",
+      tone: "neutral",
+    };
+  }
+
+  const change = ((current - previous) / previous) * 100;
+  const precision = Math.abs(change) < 10 ? 1 : 0;
+  const sign = change > 0 ? "+" : "";
+
+  let tone = "neutral";
+  if (change !== 0) {
+    const isPositive = inverse ? change < 0 : change > 0;
+    tone = isPositive ? "up" : "down";
+  }
+
+  return {
+    text: `${sign}${change.toFixed(precision)}% vs previous`,
+    tone,
+  };
+}
+
+function calculateDashboardMetrics({ salesSummaryData = {}, products = [] } = {}) {
+  const overview = salesSummaryData?.overview || {};
+  const trendEntries = normalizeTrendEntries(salesSummaryData?.trend || []);
+  const revenueFromTrend = trendEntries.reduce((sum, entry) => sum + entry.revenue, 0);
+  const ordersFromTrend = trendEntries.reduce((sum, entry) => sum + entry.transactions, 0);
+
+  const totalRevenue = Math.max(asNumber(overview.totalRevenue, revenueFromTrend), 0);
+  const totalOrders = Math.max(asNumber(overview.totalTransactions, ordersFromTrend), 0);
+  const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+  const activeProducts = Array.isArray(products)
+    ? products.filter((product) => product?.isActive !== false)
+    : [];
+
+  const stockValue = activeProducts.reduce(
+    (sum, product) => sum + Math.max(asNumber(product?.price), 0) * Math.max(asNumber(product?.stock), 0),
+    0
+  );
+
+  const lowStockFromProducts = activeProducts.filter(
+    (product) => Math.max(asNumber(product?.stock), 0) < DASHBOARD_LOW_STOCK_THRESHOLD
+  ).length;
+
+  const lowStockItems =
+    activeProducts.length > 0
+      ? lowStockFromProducts
+      : Math.max(asNumber(salesSummaryData?.lowStockCount), 0);
+
+  const latestTrend = trendEntries[trendEntries.length - 1];
+  const previousTrend = trendEntries[trendEntries.length - 2];
+
+  const latestRevenue = latestTrend?.revenue ?? totalRevenue;
+  const previousRevenue = previousTrend?.revenue ?? 0;
+  const latestOrders = latestTrend?.transactions ?? totalOrders;
+  const previousOrders = previousTrend?.transactions ?? 0;
+
+  const latestAvg = latestOrders > 0 ? latestRevenue / latestOrders : avgOrderValue;
+  const previousAvg = previousOrders > 0 ? previousRevenue / previousOrders : 0;
+
+  const lowStockTrend =
+    lowStockItems > 0
+      ? {
+          text: `${formatNumber(lowStockItems)} need restock`,
+          tone: "down",
+        }
+      : {
+          text: "All shelves healthy",
+          tone: "up",
+        };
+
+  return {
+    totalRevenue,
+    totalOrders,
+    avgOrderValue,
+    lowStockItems,
+    stockValue,
+    hasSalesData: totalOrders > 0,
+    trend: {
+      totalRevenue: formatTrendDelta(latestRevenue, previousRevenue),
+      totalOrders: formatTrendDelta(latestOrders, previousOrders),
+      avgOrderValue: formatTrendDelta(latestAvg, previousAvg),
+      lowStockItems: lowStockTrend,
+      stockValue: {
+        text: "Inventory valuation snapshot",
+        tone: "neutral",
+      },
+    },
+  };
+}
+
+function getMetricValueFormat(metricKey) {
+  return ["totalRevenue", "avgOrderValue", "stockValue"].includes(metricKey) ? "currency" : "number";
+}
+
+function formatMetricValue(value, format) {
+  return format === "currency" ? formatCurrency(value) : formatNumber(value);
+}
+
+function DashboardCard({
+  metricKey,
+  targetValue,
+  metricFormat,
+  displayValue,
+  title,
+  description,
+  icon,
+  tone,
+  trendText,
+  trendTone,
+}) {
+  return `
+    <article class="dashboard-card dashboard-card-${tone}">
+      <div class="dashboard-card-head">
+        <span class="dashboard-card-icon" aria-hidden="true">${icon}</span>
+        <span class="dashboard-card-trend dashboard-card-trend-${trendTone}">${trendText}</span>
+      </div>
+      <p class="dashboard-card-title">${title}</p>
+      <h3
+        class="dashboard-card-value"
+        data-metric-key="${metricKey}"
+        data-target-value="${Math.max(asNumber(targetValue), 0)}"
+        data-metric-format="${metricFormat}"
+      >
+        ${displayValue}
+      </h3>
+      <p class="dashboard-card-description">${description}</p>
+    </article>
+  `;
+}
+
+function animateDashboardCardValues() {
+  if (!elements.dashboardMetricsGrid) {
     return;
   }
 
-  elements.paymentBreakdown.innerHTML = entries
+  const valueElements = Array.from(
+    elements.dashboardMetricsGrid.querySelectorAll(".dashboard-card-value[data-target-value]")
+  );
+
+  if (!valueElements.length) {
+    return;
+  }
+
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const durationMs = 620;
+
+  valueElements.forEach((valueElement) => {
+    const targetValue = Math.max(asNumber(valueElement.dataset.targetValue), 0);
+    const metricFormat = String(valueElement.dataset.metricFormat || "number");
+
+    if (reducedMotion) {
+      valueElement.textContent = formatMetricValue(targetValue, metricFormat);
+      return;
+    }
+
+    valueElement.classList.add("is-animating");
+    const startAt = performance.now();
+
+    const frame = (now) => {
+      const progress = Math.min((now - startAt) / durationMs, 1);
+      const eased = 1 - (1 - progress) ** 3;
+      const animatedValue = targetValue * eased;
+      valueElement.textContent = formatMetricValue(animatedValue, metricFormat);
+
+      if (progress < 1) {
+        requestAnimationFrame(frame);
+      } else {
+        valueElement.textContent = formatMetricValue(targetValue, metricFormat);
+        valueElement.classList.remove("is-animating");
+      }
+    };
+
+    requestAnimationFrame(frame);
+  });
+}
+
+function renderDashboardCards(metrics) {
+  if (!elements.dashboardMetricsGrid) {
+    return;
+  }
+
+  const cardsHtml = DASHBOARD_METRIC_CONFIG.map((config) => {
+    const rawValue = metrics?.[config.key] ?? 0;
+    const trend = metrics?.trend?.[config.key] || {
+      text: "No comparison data",
+      tone: "neutral",
+    };
+
+    const description =
+      !metrics?.hasSalesData && ["totalRevenue", "totalOrders", "avgOrderValue"].includes(config.key)
+        ? "No sales yet for selected range"
+        : config.description;
+
+    const metricFormat = getMetricValueFormat(config.key);
+
+    return DashboardCard({
+      metricKey: config.key,
+      targetValue: rawValue,
+      metricFormat,
+      displayValue: formatMetricValue(rawValue, metricFormat),
+      title: config.title,
+      description,
+      icon: config.icon,
+      tone: config.tone,
+      trendText: trend.text,
+      trendTone: trend.tone,
+    });
+  }).join("");
+
+  elements.dashboardMetricsGrid.innerHTML = cardsHtml;
+  animateDashboardCardValues();
+}
+
+function renderDashboardInsights(metrics = {}, salesSummaryData = {}) {
+  if (!elements.dashboardInsights) {
+    return;
+  }
+
+  const paymentBreakdownEntries = normalizePaymentBreakdownEntries(salesSummaryData?.paymentBreakdown || []);
+  const leadPayment = paymentBreakdownEntries[0];
+  const revenueTrendText = metrics?.trend?.totalRevenue?.text || "No revenue trend available";
+  const ordersTrendText = metrics?.trend?.totalOrders?.text || "No transaction trend available";
+
+  const insights = [
+    {
+      label: "Revenue Insight",
+      value: `Sales trend: ${revenueTrendText}`,
+    },
+    {
+      label: "Orders Insight",
+      value: `Transactions trend: ${ordersTrendText}`,
+    },
+    {
+      label: "Inventory Insight",
+      value:
+        metrics.lowStockItems > 0
+          ? `${formatNumber(metrics.lowStockItems)} products need restock action.`
+          : "Inventory health is stable across active products.",
+    },
+    {
+      label: "Payment Insight",
+      value: leadPayment
+        ? `${leadPayment.label} drives ${formatCurrency(leadPayment.amount)} across ${formatNumber(leadPayment.count)} orders.`
+        : "Not enough payment data yet to compute mix leadership.",
+    },
+  ];
+
+  elements.dashboardInsights.innerHTML = insights
     .map(
-      (entry) => `
-      <div class="payment-row">
-        <span class="uppercase">${entry._id}</span>
-        <span>${entry.count} txns</span>
-        <strong>${formatCurrency(entry.amount)}</strong>
-      </div>
+      (insight) => `
+      <article class="insight-chip">
+        <p>${insight.label}</p>
+        <strong>${insight.value}</strong>
+      </article>
     `
     )
     .join("");
 }
 
+function renderPaymentBreakdown(entries) {
+  const normalizedEntries = normalizePaymentBreakdownEntries(entries);
+
+  if (!normalizedEntries.length) {
+    elements.paymentBreakdown.innerHTML = '<p class="text-sm text-slate-500">No payment data available.</p>';
+    return;
+  }
+
+  const palette = ["#16a34a", "#2563eb", "#0f766e", "#ea580c", "#dc2626"];
+  const totalAmount = normalizedEntries.reduce((sum, entry) => sum + entry.amount, 0);
+  const totalOrders = normalizedEntries.reduce((sum, entry) => sum + entry.count, 0);
+  const distributionTotal = totalAmount > 0 ? totalAmount : totalOrders;
+
+  let runningPercent = 0;
+  const gradientSegments = normalizedEntries
+    .map((entry, index) => {
+      const basisValue = totalAmount > 0 ? entry.amount : entry.count;
+      const sharePercent = distributionTotal > 0 ? (basisValue / distributionTotal) * 100 : 0;
+      const start = runningPercent;
+      const end = runningPercent + sharePercent;
+      runningPercent = end;
+      return `${palette[index % palette.length]} ${start.toFixed(2)}% ${end.toFixed(2)}%`;
+    })
+    .join(", ");
+
+  elements.paymentBreakdown.innerHTML = `
+    <div class="payment-distribution-layout">
+      <div class="payment-donut-wrap">
+        <div class="payment-donut" style="background: conic-gradient(${gradientSegments});"></div>
+        <div class="payment-donut-center">
+          <strong>${formatCurrency(totalAmount)}</strong>
+          <span>Total</span>
+        </div>
+      </div>
+      <div class="payment-legend-list">
+        ${normalizedEntries
+    .map(
+      (entry, index) => `
+      <div class="payment-row">
+        <span class="payment-label"><i class="payment-swatch" style="background:${palette[index % palette.length]};"></i>${entry.label}</span>
+        <span>${formatNumber(entry.count)} orders</span>
+        <strong>${formatCurrency(entry.amount)}</strong>
+      </div>
+    `
+    )
+    .join("")}
+      </div>
+    </div>
+  `;
+}
+
 function renderTrendChart(trend) {
-  if (!trend.length) {
+  const normalizedTrend = normalizeTrendEntries(trend);
+
+  if (!normalizedTrend.length) {
     elements.trendChart.innerHTML = '<p class="text-sm text-slate-500">No trend data available.</p>';
     return;
   }
 
-  const maxValue = Math.max(...trend.map((entry) => entry.revenue), 1);
+  const chartWidth = 620;
+  const chartHeight = 180;
+  const paddingX = 24;
+  const paddingY = 20;
+  const chartBottom = chartHeight - paddingY;
+  const maxValue = Math.max(...normalizedTrend.map((entry) => entry.revenue), 1);
+  const stepX =
+    normalizedTrend.length > 1
+      ? (chartWidth - paddingX * 2) / (normalizedTrend.length - 1)
+      : 0;
 
-  elements.trendChart.innerHTML = trend
-    .map((entry) => {
-      const percent = Math.max((entry.revenue / maxValue) * 100, 2);
-      return `
-      <div class="trend-row">
-        <span>${entry._id}</span>
-        <div class="trend-bar-wrap">
-          <div class="trend-bar" style="width:${percent}%;"></div>
-        </div>
-        <strong>${formatCurrency(entry.revenue)}</strong>
+  const points = normalizedTrend.map((entry, index) => {
+    const x = paddingX + stepX * index;
+    const y = chartBottom - (entry.revenue / maxValue) * (chartHeight - paddingY * 2);
+    return {
+      x,
+      y,
+      label: entry.label,
+      revenue: entry.revenue,
+      transactions: entry.transactions,
+    };
+  });
+
+  const linePath = points
+    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
+    .join(" ");
+
+  const firstPoint = points[0];
+  const lastPoint = points[points.length - 1];
+  const areaPath = `${linePath} L ${lastPoint.x.toFixed(2)} ${chartBottom.toFixed(2)} L ${firstPoint.x.toFixed(2)} ${chartBottom.toFixed(2)} Z`;
+
+  const trendSummary = points
+    .slice(-4)
+    .map(
+      (point) => `
+      <div class="trend-summary-item">
+        <p>${point.label}</p>
+        <strong>${formatCurrency(point.revenue)}</strong>
+        <span>${formatNumber(point.transactions)} orders</span>
       </div>
-    `;
-    })
+    `
+    )
     .join("");
+
+  elements.trendChart.innerHTML = `
+    <div class="trend-chart-shell">
+      <svg class="trend-chart-svg" viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Revenue trend line chart">
+        <defs>
+          <linearGradient id="trend-fill-gradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#16a34a" stop-opacity="0.35" />
+            <stop offset="100%" stop-color="#16a34a" stop-opacity="0" />
+          </linearGradient>
+        </defs>
+        <path d="${areaPath}" fill="url(#trend-fill-gradient)"></path>
+        <path d="${linePath}" class="trend-line-path"></path>
+        ${points
+          .map(
+            (point) =>
+              `<circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4" class="trend-line-point"></circle>`
+          )
+          .join("")}
+      </svg>
+      <div class="trend-summary-grid">${trendSummary}</div>
+    </div>
+  `;
 }
 
 function renderTopProducts(products) {
-  if (!products.length) {
+  if (!Array.isArray(products) || !products.length) {
     elements.topProducts.innerHTML = '<p class="text-sm text-slate-500">No product sales data yet.</p>';
     return;
   }
@@ -2224,12 +3640,12 @@ function renderTopProducts(products) {
       (entry) => `
       <div class="top-product-row">
         <div>
-          <p class="font-semibold text-slate-900">${entry._id.name}</p>
-          <p class="text-xs text-slate-500">${entry._id.barcode}</p>
+          <p class="font-semibold text-slate-900">${entry?._id?.name || entry?.name || "-"}</p>
+          <p class="text-xs text-slate-500">${entry?._id?.barcode || entry?.barcode || "-"}</p>
         </div>
         <div class="text-right">
-          <p class="text-sm">Qty: ${entry.quantitySold}</p>
-          <p class="font-semibold">${formatCurrency(entry.revenue)}</p>
+          <p class="text-sm">Qty: ${formatNumber(entry?.quantitySold || entry?.quantity || 0)}</p>
+          <p class="font-semibold">${formatCurrency(entry?.revenue || 0)}</p>
         </div>
       </div>
     `
@@ -2617,7 +4033,32 @@ function applyLocalStockDeduction() {
 }
 
 function openBillModal(sale, isOffline = false) {
-  const rows = sale.items
+  const normalizedSale = {
+    ...sale,
+    items: Array.isArray(sale?.items) ? sale.items : [],
+  };
+  const draftInvoiceRecord = createInvoiceRecordFromSale(normalizedSale, { isOffline });
+  const persistedInvoiceRecord = saveInvoiceRecord(draftInvoiceRecord) || draftInvoiceRecord;
+  setBillActionContext(persistedInvoiceRecord);
+
+  if (!isOffline) {
+    setBillSendStatus("Securing share link...", "pending");
+    void ensureBackendSignedInvoiceLink(persistedInvoiceRecord).then((securedInvoice) => {
+      if (!securedInvoice || state.activeInvoice?.invoiceId !== persistedInvoiceRecord.invoiceId) {
+        return;
+      }
+
+      if (String(securedInvoice.signedToken || "").trim()) {
+        if (!securedInvoice.sentViaWhatsapp) {
+          setBillSendStatus("Secure link ready", "success");
+        }
+      } else if (!securedInvoice.sentViaWhatsapp) {
+        setBillSendStatus("Using fallback local link", "warning");
+      }
+    });
+  }
+
+  const rows = normalizedSale.items
     .map(
       (item) => `
       <tr>
@@ -2630,14 +4071,31 @@ function openBillModal(sale, isOffline = false) {
     )
     .join("");
 
+  const billDate = new Date(normalizedSale.createdAt || Date.now()).toLocaleString();
+  const successLabel = isOffline ? "Saved Offline" : "Payment Successful";
+  const successMeta = isOffline
+    ? "Transaction saved locally and will sync automatically once online."
+    : "Share receipt instantly via PDF or WhatsApp.";
+  const shopProfile = persistedInvoiceRecord.shop || {};
+
   elements.billContent.innerHTML = `
+    <section class="bill-success-panel">
+      <span class="bill-success-chip">${successLabel}</span>
+      <div class="bill-success-icon" aria-hidden="true">✓</div>
+      <h4 class="bill-success-total">${formatCurrency(normalizedSale.total || 0)}</h4>
+      <p class="bill-success-meta">Bill No: ${normalizedSale.billNumber || "-"}</p>
+      <p class="bill-success-meta">Invoice ID: ${persistedInvoiceRecord.invoiceId}</p>
+      <p class="bill-success-meta">${successMeta}</p>
+    </section>
+
     <div class="bill-head">
-      <h3>Retail POS Invoice</h3>
+      <h3>${shopProfile.name || "CounterCraft POS"} Invoice</h3>
       <p>${isOffline ? "OFFLINE BILL (Pending Sync)" : "PAID"}</p>
     </div>
-    <p>Bill No: <strong>${sale.billNumber}</strong></p>
-    <p>Date: ${new Date(sale.createdAt || Date.now()).toLocaleString()}</p>
-    <p>Cashier: ${sale.cashier || "Default Cashier"}</p>
+    <p>Invoice Link: <a href="${persistedInvoiceRecord.invoiceLink}" target="_blank" rel="noopener noreferrer">${persistedInvoiceRecord.invoiceLink}</a></p>
+    <p>Bill No: <strong>${normalizedSale.billNumber || "-"}</strong></p>
+    <p>Date: ${billDate}</p>
+    <p>Cashier: ${normalizedSale.cashier || "Default Cashier"}</p>
     <table class="bill-table">
       <thead>
         <tr>
@@ -2651,33 +4109,37 @@ function openBillModal(sale, isOffline = false) {
     </table>
     <div class="bill-total-row">
       <span>Subtotal</span>
-      <strong>${formatCurrency(sale.subtotal)}</strong>
+      <strong>${formatCurrency(normalizedSale.subtotal || 0)}</strong>
     </div>
     <div class="bill-total-row">
       <span>Tax</span>
-      <strong>${formatCurrency(sale.tax)}</strong>
+      <strong>${formatCurrency(normalizedSale.tax || 0)}</strong>
     </div>
     <div class="bill-total-row">
       <span>Discount</span>
-      <strong>${formatCurrency(sale.discount)}</strong>
+      <strong>${formatCurrency(normalizedSale.discount || 0)}</strong>
     </div>
     <div class="bill-total-row grand">
       <span>Total</span>
-      <strong>${formatCurrency(sale.total)}</strong>
+      <strong>${formatCurrency(normalizedSale.total || 0)}</strong>
     </div>
     <div class="bill-total-row">
       <span>Payment</span>
-      <strong>${sale.paymentMethod.toUpperCase()}</strong>
+      <strong>${String(normalizedSale.paymentMethod || "-").toUpperCase()}</strong>
     </div>
     <div class="bill-total-row">
       <span>Paid Amount</span>
-      <strong>${formatCurrency(sale.paidAmount)}</strong>
+      <strong>${formatCurrency(normalizedSale.paidAmount || 0)}</strong>
     </div>
     <div class="bill-total-row">
       <span>Change Due</span>
-      <strong>${formatCurrency(sale.changeDue)}</strong>
+      <strong>${formatCurrency(normalizedSale.changeDue || 0)}</strong>
     </div>
   `;
+
+  if (!isOffline) {
+    showToast("Link ready", "info");
+  }
 
   rememberModalFocus(elements.billModal);
   elements.billModal.classList.remove("hidden");
@@ -2689,6 +4151,10 @@ function closeBillModal() {
 }
 
 async function loadProducts() {
+  const productTableLoadingTarget = elements.productTableBody?.closest(".table-wrap") || elements.productTableBody;
+  setSectionLoading(elements.productResults, true);
+  setSectionLoading(productTableLoadingTarget, true);
+
   try {
     const response = await api.getProducts({ limit: 500 });
     state.products = normalizeProductEntries(response.data);
@@ -2704,10 +4170,14 @@ async function loadProducts() {
       state.products = [];
       showToast(error.message || "Unable to load products", "error");
     }
-  }
+  } finally {
+    setSectionLoading(elements.productResults, false);
+    setSectionLoading(productTableLoadingTarget, false);
 
-  renderProductResults();
-  renderProductTable();
+    renderProductResults();
+    renderProductTable();
+    updateCheckoutRuntimeStatus();
+  }
 }
 
 async function loadAdminUsers() {
@@ -2716,6 +4186,9 @@ async function loadAdminUsers() {
     renderAdminUsersTable();
     return false;
   }
+
+  const userTableLoadingTarget = elements.userTableBody?.closest(".table-wrap") || elements.userTableBody;
+  setSectionLoading(userTableLoadingTarget, true);
 
   try {
     const response = await api.getUsers();
@@ -2727,11 +4200,16 @@ async function loadAdminUsers() {
     renderAdminUsersTable();
     showToast(error.message || "Unable to load users", "error");
     return false;
+  } finally {
+    setSectionLoading(userTableLoadingTarget, false);
   }
 }
 
 async function loadSalesHistory() {
   let query = { limit: 20 };
+  const historyTableLoadingTarget =
+    elements.historyTableBody?.closest(".table-wrap") || elements.historyTableBody;
+  setSectionLoading(historyTableLoadingTarget, true);
 
   try {
     query = getHistoryApiFilters();
@@ -2739,6 +4217,7 @@ async function loadSalesHistory() {
     showToast(error.message || "Invalid history filters", "error");
     state.salesHistory = [];
     renderHistoryTable();
+    setSectionLoading(historyTableLoadingTarget, false);
     return;
   }
 
@@ -2750,6 +4229,7 @@ async function loadSalesHistory() {
   }
 
   renderHistoryTable();
+  setSectionLoading(historyTableLoadingTarget, false);
 }
 
 async function loadLowStockAlert() {
@@ -2763,38 +4243,41 @@ async function loadLowStockAlert() {
 }
 
 async function loadDashboard() {
+  setSectionLoading(elements.dashboardMetricsGrid, true);
+  setSectionLoading(elements.paymentBreakdown, true);
+  setSectionLoading(elements.trendChart, true);
+  setSectionLoading(elements.topProducts, true);
+
   try {
-    const [salesSummary, inventoryOverview] = await Promise.all([
-      api.getSalesSummary({ range: state.dashboardRange }),
-      api.getInventoryOverview({ threshold: 5 }),
-    ]);
+    const salesSummary = await api.getSalesSummary({ range: state.dashboardRange });
+    const summaryData = salesSummary?.data || {};
 
-    const overview = salesSummary.data.overview;
+    const metrics = calculateDashboardMetrics({
+      salesSummaryData: summaryData,
+      products: state.products,
+    });
 
-    elements.metricRevenue.textContent = formatCurrency(overview.totalRevenue || 0);
-    elements.metricTransactions.textContent = String(overview.totalTransactions || 0);
-
-    const avgBill =
-      overview.totalTransactions > 0 ? overview.totalRevenue / overview.totalTransactions : 0;
-    elements.metricAvgBill.textContent = formatCurrency(avgBill);
-    elements.metricLowStock.textContent = String(salesSummary.data.lowStockCount || 0);
-    elements.metricInventoryValue.textContent = formatCurrency(
-      inventoryOverview.data.inventoryValue || 0
-    );
-
-    renderPaymentBreakdown(salesSummary.data.paymentBreakdown || []);
-    renderTrendChart(salesSummary.data.trend || []);
-    renderTopProducts(salesSummary.data.topProducts || []);
+    renderDashboardCards(metrics);
+    renderDashboardInsights(metrics, summaryData);
+    renderPaymentBreakdown(summaryData.paymentBreakdown || []);
+    renderTrendChart(summaryData.trend || []);
+    renderTopProducts(summaryData.topProducts || []);
   } catch (error) {
-    elements.metricRevenue.textContent = formatCurrency(0);
-    elements.metricTransactions.textContent = "0";
-    elements.metricAvgBill.textContent = formatCurrency(0);
-    elements.metricLowStock.textContent = "0";
-    elements.metricInventoryValue.textContent = formatCurrency(0);
+    const fallbackMetrics = calculateDashboardMetrics({
+      salesSummaryData: {},
+      products: state.products,
+    });
 
+    renderDashboardCards(fallbackMetrics);
+    renderDashboardInsights(fallbackMetrics, {});
     renderPaymentBreakdown([]);
     renderTrendChart([]);
     renderTopProducts([]);
+  } finally {
+    setSectionLoading(elements.dashboardMetricsGrid, false);
+    setSectionLoading(elements.paymentBreakdown, false);
+    setSectionLoading(elements.trendChart, false);
+    setSectionLoading(elements.topProducts, false);
   }
 }
 
@@ -2874,9 +4357,13 @@ async function handleCheckout() {
   const checkoutContext = buildCheckoutContext(state.paymentMethod);
 
   if (checkoutContext.paymentMethod === "cash" && checkoutContext.paidAmount < checkoutContext.total) {
+    elements.paidAmountInput.classList.add("input-invalid");
+    elements.paidAmountInput.focus();
     showToast("Paid amount cannot be less than total for cash", "error");
     return;
   }
+
+  elements.paidAmountInput.classList.remove("input-invalid");
 
   if (checkoutContext.paymentMethod === "upi") {
     if (state.upiModalOpen) {
@@ -2889,7 +4376,12 @@ async function handleCheckout() {
   }
 
   const payload = buildCheckoutPayload(checkoutContext);
-  await completeCheckout(checkoutContext, payload);
+  setCheckoutButtonBusy(true, "Processing payment...");
+  try {
+    await completeCheckout(checkoutContext, payload);
+  } finally {
+    setCheckoutButtonBusy(false);
+  }
 }
 
 function findProductByBarcode(barcode) {
@@ -3218,6 +4710,50 @@ function bindEvents() {
     void logoutUser("Logged out successfully.");
   });
 
+  if (elements.quickNewSaleButton) {
+    elements.quickNewSaleButton.addEventListener("click", () => {
+      setActiveTab("pos");
+      clearCart();
+      showToast("New sale started", "info");
+    });
+  }
+
+  if (elements.quickAddProductButton) {
+    elements.quickAddProductButton.addEventListener("click", () => {
+      openAdminProductCreate();
+    });
+  }
+
+  if (elements.quickSyncButton) {
+    elements.quickSyncButton.addEventListener("click", () => {
+      if (!navigator.onLine) {
+        showToast("You are offline. Sync will resume automatically when online.", "warning");
+        return;
+      }
+      void syncPendingSales();
+    });
+  }
+
+  if (elements.themeToggleButton) {
+    elements.themeToggleButton.addEventListener("click", () => {
+      toggleTheme();
+    });
+  }
+
+  if (elements.floatingNewSaleButton) {
+    elements.floatingNewSaleButton.addEventListener("click", () => {
+      if (!state.authReady) {
+        openAuthModal("Please sign in to start billing.");
+        return;
+      }
+
+      setActiveTab("pos");
+      clearCart();
+      focusProductSearch();
+      showToast("New sale started", "info");
+    });
+  }
+
   elements.searchInput.addEventListener("input", renderProductResults);
   elements.manualBarcodeButton.addEventListener("click", promptManualBarcodeEntry);
 
@@ -3369,6 +4905,9 @@ function bindEvents() {
 
   elements.taxInput.addEventListener("input", renderCart);
   elements.discountInput.addEventListener("input", renderCart);
+  elements.paidAmountInput.addEventListener("input", () => {
+    elements.paidAmountInput.classList.remove("input-invalid");
+  });
 
   elements.paymentButtons.forEach((button) => {
     button.addEventListener("click", () => {
@@ -3772,6 +5311,36 @@ function bindEvents() {
     }
   });
 
+  if (elements.inventorySearchInput) {
+    elements.inventorySearchInput.addEventListener("input", () => {
+      renderProductTable();
+    });
+  }
+
+  if (elements.inventoryStatusFilter) {
+    elements.inventoryStatusFilter.addEventListener("change", () => {
+      renderProductTable();
+    });
+  }
+
+  if (elements.inventorySortSelect) {
+    elements.inventorySortSelect.addEventListener("change", () => {
+      renderProductTable();
+    });
+  }
+
+  if (elements.userSearchInput) {
+    elements.userSearchInput.addEventListener("input", () => {
+      renderAdminUsersTable();
+    });
+  }
+
+  if (elements.userStatusFilter) {
+    elements.userStatusFilter.addEventListener("change", () => {
+      renderAdminUsersTable();
+    });
+  }
+
   elements.dashboardRangeButtons.forEach((button) => {
     button.addEventListener("click", async () => {
       state.dashboardRange = button.dataset.range;
@@ -3823,6 +5392,18 @@ function bindEvents() {
       });
     });
 
+  if (elements.historySearchInput) {
+    elements.historySearchInput.addEventListener("input", () => {
+      renderHistoryTable();
+    });
+  }
+
+  if (elements.historySortSelect) {
+    elements.historySortSelect.addEventListener("change", () => {
+      renderHistoryTable();
+    });
+  }
+
   elements.scanButton.addEventListener("click", () => {
     void startScanner();
   });
@@ -3868,6 +5449,31 @@ function bindEvents() {
   });
 
   elements.billClose.addEventListener("click", closeBillModal);
+
+  if (elements.billCustomerPhoneInput) {
+    elements.billCustomerPhoneInput.addEventListener("change", () => {
+      const normalizedPhone = normalizeCustomerPhone(elements.billCustomerPhoneInput.value);
+      if (!normalizedPhone) {
+        return;
+      }
+
+      rememberCustomerPhone(normalizedPhone);
+      renderBillPhoneSuggestions();
+    });
+  }
+
+  if (elements.billDownloadPdf) {
+    elements.billDownloadPdf.addEventListener("click", () => {
+      void handleBillPdfDownload();
+    });
+  }
+
+  if (elements.billWhatsapp) {
+    elements.billWhatsapp.addEventListener("click", () => {
+      void handleBillWhatsappShare();
+    });
+  }
+
   elements.billPrint.addEventListener("click", () => window.print());
 
   elements.billModal.addEventListener("click", (event) => {
@@ -3877,6 +5483,7 @@ function bindEvents() {
   });
 
   document.addEventListener("keydown", handleGlobalModalKeydown);
+  document.addEventListener("keydown", handleGlobalShortcutKeydown);
   document.addEventListener("keydown", handleKeyboardWedgeKeydown);
 
   window.addEventListener("blur", resetKeyboardWedgeBuffer);
@@ -3900,13 +5507,15 @@ function bindEvents() {
 }
 
 async function init() {
-  elements.apiBaseText.textContent = API_BASE_URL;
+  applyTheme(resolveInitialTheme());
   updateNetworkBadge();
   updatePendingBadge();
   updateSyncInfo();
   bindEvents();
   initializeReportDateFilters();
   renderPaymentSettingsForm();
+  renderBillPhoneSuggestions();
+  setBillSendStatus("Not sent yet", "neutral");
 
   renderCart();
   updateAuthBadge();

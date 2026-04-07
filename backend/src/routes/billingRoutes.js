@@ -1,12 +1,35 @@
 import { Router } from "express";
-import { body } from "express-validator";
-import { processBilling } from "../controllers/billingController.js";
+import { body, param, query } from "express-validator";
+import {
+  createInvoiceShareToken,
+  getPublicInvoice,
+  processBilling,
+} from "../controllers/billingController.js";
 import { authenticate, requireRoles } from "../middlewares/authMiddleware.js";
 import { validateRequest } from "../middlewares/validateRequest.js";
 
 const router = Router();
 
+router.get(
+	"/public/:invoiceId",
+	[
+		param("invoiceId").trim().isLength({ min: 6, max: 64 }).withMessage("Invalid invoiceId"),
+		query("token").trim().isLength({ min: 20 }).withMessage("token query parameter is required"),
+		validateRequest,
+	],
+	getPublicInvoice
+);
+
 router.use(authenticate, requireRoles("admin", "cashier"));
+
+router.get(
+	"/invoices/:invoiceId/share-token",
+	[
+		param("invoiceId").isMongoId().withMessage("Invalid invoiceId"),
+		validateRequest,
+	],
+	createInvoiceShareToken
+);
 
 router.post(
 	"/process",

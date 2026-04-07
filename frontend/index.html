@@ -23,7 +23,7 @@
     />
     <link
       rel="stylesheet"
-      href="./assets/styles.css?v=20260406-3"
+      href="./assets/styles.css?v=20260407-2"
     />
   </head>
   <body class="app-body min-h-screen bg-dune-100 text-slate-900">
@@ -31,25 +31,17 @@
     <div class="grain-overlay"></div>
 
     <div class="app-shell relative z-10 mx-auto max-w-7xl px-4 pb-8 pt-6 md:px-8">
-      <header class="surface p-6 md:p-8">
-        <div class="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+      <header class="surface app-header p-6 md:p-8">
+        <div class="header-main-row flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p class="eyebrow">Retail Billing Suite</p>
             <h1 class="headline mt-2">CounterCraft POS</h1>
-            <p class="mt-2 max-w-2xl text-sm text-slate-600 md:text-base">
-              Mobile-friendly retail POS with inventory control, barcode checkout,
-              offline fallback, and real-time sales insights.
+            <p class="app-tagline mt-2 max-w-2xl text-sm text-slate-600 md:text-base">
+              Run Your Shop Smarter with CounterCraft POS
             </p>
           </div>
 
-          <div class="flex w-full flex-col gap-2 lg:max-w-lg">
-            <div class="status-row">
-              <span class="status-label">API:</span>
-              <span
-                id="api-base"
-                class="status-value"
-              ></span>
-            </div>
+          <div class="flex w-full flex-col gap-2 lg:max-w-2xl">
             <div class="flex flex-wrap gap-2">
               <span
                 id="network-badge"
@@ -81,6 +73,45 @@
                 Logout
               </button>
             </div>
+            <div class="header-action-row">
+              <div
+                class="quick-actions"
+                role="toolbar"
+                aria-label="Quick actions"
+              >
+                <button
+                  id="quick-new-sale"
+                  class="secondary-btn btn-inline"
+                  type="button"
+                >
+                  New Sale
+                </button>
+                <button
+                  id="quick-add-product"
+                  class="secondary-btn btn-inline"
+                  type="button"
+                >
+                  Add Product
+                </button>
+                <button
+                  id="quick-sync"
+                  class="secondary-btn btn-inline"
+                  type="button"
+                >
+                  Sync Offline Sales
+                </button>
+              </div>
+
+              <button
+                id="theme-toggle-button"
+                class="theme-toggle-btn"
+                type="button"
+                aria-pressed="false"
+                aria-label="Toggle dark mode"
+              >
+                Dark Mode
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -99,6 +130,9 @@
           aria-selected="true"
           aria-controls="panel-pos"
         >
+          <span class="tab-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 10h16v10H4zM8 10V6h8v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
           <span class="tab-label-full">POS Terminal</span>
           <span
             class="tab-label-short"
@@ -114,6 +148,9 @@
           aria-selected="false"
           aria-controls="panel-admin"
         >
+          <span class="tab-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="18" cy="7" r="1.5"/><circle cx="8" cy="12" r="1.5"/><circle cx="14" cy="17" r="1.5"/></svg>
+          </span>
           <span class="tab-label-full">Inventory Admin</span>
           <span
             class="tab-label-short"
@@ -129,6 +166,9 @@
           aria-selected="false"
           aria-controls="panel-dashboard"
         >
+          <span class="tab-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 20h16M7 16V9m5 7V5m5 11v-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </span>
           <span class="tab-label-full">Sales Dashboard</span>
           <span
             class="tab-label-short"
@@ -144,6 +184,9 @@
           aria-selected="false"
           aria-controls="panel-history"
         >
+          <span class="tab-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 8v5l3 2M4 12a8 8 0 1 0 2.3-5.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
           <span class="tab-label-full">Transactions</span>
           <span
             class="tab-label-short"
@@ -172,15 +215,13 @@
                   <p class="section-subtitle">
                     Search by product name or barcode. Use camera scanner for fast checkout.
                   </p>
+                  <div class="shortcut-chip-row mt-3">
+                    <span class="shortcut-chip">F8 Scan</span>
+                    <span class="shortcut-chip">Ctrl+Enter Checkout</span>
+                    <span class="shortcut-chip">Ctrl+K Focus Search</span>
+                  </div>
                 </div>
                 <div class="lookup-actions">
-                  <button
-                    id="scan-button"
-                    type="button"
-                    class="action-btn"
-                  >
-                    Scan Barcode
-                  </button>
                   <button
                     id="manual-barcode-button"
                     type="button"
@@ -199,9 +240,19 @@
               <input
                 id="search-input"
                 type="text"
-                placeholder="Type name or barcode"
-                class="field-input mt-2"
+                placeholder="Type name, barcode, or category"
+                class="field-input"
               />
+
+              <div class="pos-search-row mt-2">
+                <button
+                  id="scan-button"
+                  type="button"
+                  class="action-btn"
+                >
+                  Scan Barcode
+                </button>
+              </div>
 
               <div
                 id="product-results"
@@ -216,7 +267,7 @@
               <div class="flex items-start justify-between gap-2">
                 <div>
                   <h2 class="section-title">Cart & Billing</h2>
-                  <p class="section-subtitle">Quantity controls, total calculation, and payment simulation.</p>
+                  <p class="section-subtitle">Touch-first controls, fast totals, and guided checkout.</p>
                 </div>
                 <div class="button-group-inline">
                   <button
@@ -236,6 +287,16 @@
                 </div>
               </div>
 
+              <div class="pos-runtime-strip">
+                <span
+                  id="checkout-status-pill"
+                  class="runtime-pill runtime-pill-ready"
+                >
+                  Ready to bill
+                </span>
+                <p class="runtime-meta">Live totals update in real-time as you bill.</p>
+              </div>
+
               <div
                 id="cart-list"
                 class="cart-list-scroll mt-4 space-y-2 pr-1"
@@ -247,6 +308,7 @@
                   <input
                     id="tax-input"
                     type="number"
+                    inputmode="decimal"
                     min="0"
                     step="0.01"
                     value="0"
@@ -258,6 +320,7 @@
                   <input
                     id="discount-input"
                     type="number"
+                    inputmode="decimal"
                     min="0"
                     step="0.01"
                     value="0"
@@ -292,6 +355,7 @@
                   <input
                     id="paid-amount-input"
                     type="number"
+                    inputmode="decimal"
                     min="0"
                     step="0.01"
                     value="0"
@@ -319,7 +383,7 @@
                     <span class="font-semibold">Total</span>
                     <strong
                       id="total-value"
-                      class="text-ember-600"
+                      class="checkout-total-value text-ember-600"
                       >INR 0.00</strong
                     >
                   </div>
@@ -330,7 +394,7 @@
                   class="primary-btn mt-4"
                   type="button"
                 >
-                  Process Payment
+                  Complete Checkout
                 </button>
               </div>
             </article>
@@ -397,7 +461,7 @@
 
               <form
                 id="product-form"
-                class="mt-4 space-y-3"
+                class="mt-4 space-y-3 form-stack"
               >
                 <label class="text-sm font-medium text-slate-700">
                   Product Name
@@ -433,6 +497,7 @@
                       name="price"
                       required
                       type="number"
+                      inputmode="decimal"
                       min="0"
                       step="0.01"
                       class="field-input mt-1"
@@ -444,6 +509,7 @@
                       name="stock"
                       required
                       type="number"
+                      inputmode="numeric"
                       min="0"
                       step="1"
                       class="field-input mt-1"
@@ -474,7 +540,45 @@
               <h2 class="section-title">Inventory Management</h2>
               <p class="section-subtitle">Track stock, update quantities, and deactivate discontinued items.</p>
 
-              <div class="table-wrap mt-4">
+              <div class="table-toolbar mt-4">
+                <label class="table-filter-field">
+                  <span>Search</span>
+                  <input
+                    id="inventory-search-input"
+                    type="text"
+                    placeholder="Name, barcode, or category"
+                    class="field-input"
+                  />
+                </label>
+                <label class="table-filter-field">
+                  <span>Status</span>
+                  <select
+                    id="inventory-status-filter"
+                    class="field-input"
+                  >
+                    <option value="all">All</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="low-stock">Low Stock</option>
+                  </select>
+                </label>
+                <label class="table-filter-field">
+                  <span>Sort</span>
+                  <select
+                    id="inventory-sort-select"
+                    class="field-input"
+                  >
+                    <option value="name-asc">Name A-Z</option>
+                    <option value="name-desc">Name Z-A</option>
+                    <option value="stock-asc">Stock Low-High</option>
+                    <option value="stock-desc">Stock High-Low</option>
+                    <option value="price-desc">Price High-Low</option>
+                    <option value="price-asc">Price Low-High</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="table-wrap mt-3">
                 <table class="responsive-table inventory-table w-full text-sm">
                   <thead>
                     <tr class="bg-dune-50 text-left text-xs uppercase tracking-[0.11em] text-slate-600">
@@ -500,7 +604,7 @@
 
               <form
                 id="change-password-form"
-                class="mt-4 space-y-3"
+                class="mt-4 space-y-3 form-stack"
               >
                 <label class="text-sm font-medium text-slate-700">
                   Current Password
@@ -562,7 +666,32 @@
                 </button>
               </div>
 
-              <div class="table-wrap mt-4">
+              <div class="table-toolbar mt-4">
+                <label class="table-filter-field">
+                  <span>Search</span>
+                  <input
+                    id="user-search-input"
+                    type="text"
+                    placeholder="Username or display name"
+                    class="field-input"
+                  />
+                </label>
+                <label class="table-filter-field">
+                  <span>User Filter</span>
+                  <select
+                    id="user-status-filter"
+                    class="field-input"
+                  >
+                    <option value="all">All users</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="admin">Admins</option>
+                    <option value="cashier">Cashiers</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="table-wrap mt-3">
                 <table class="responsive-table w-full text-sm">
                   <thead>
                     <tr class="bg-dune-50 text-left text-xs uppercase tracking-[0.11em] text-slate-600">
@@ -595,7 +724,7 @@
 
             <form
               id="payment-settings-form"
-              class="mt-4 space-y-3"
+              class="mt-4 space-y-3 form-stack"
             >
               <label class="text-sm font-medium text-slate-700">
                 UPI ID
@@ -742,33 +871,20 @@
               </div>
             </div>
 
-            <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-              <div class="metric-card">
-                <p>Revenue</p>
-                <h3 id="metric-revenue">INR 0.00</h3>
-              </div>
-              <div class="metric-card">
-                <p>Transactions</p>
-                <h3 id="metric-transactions">0</h3>
-              </div>
-              <div class="metric-card">
-                <p>Avg Bill</p>
-                <h3 id="metric-avg-bill">INR 0.00</h3>
-              </div>
-              <div class="metric-card">
-                <p>Low Stock</p>
-                <h3 id="metric-low-stock">0</h3>
-              </div>
-              <div class="metric-card">
-                <p>Inventory Value</p>
-                <h3 id="metric-inventory-value">INR 0.00</h3>
-              </div>
-            </div>
+            <div
+              id="dashboard-metrics-grid"
+              class="dashboard-metrics-grid mt-5"
+            ></div>
+
+            <div
+              id="dashboard-insights"
+              class="dashboard-insights mt-4"
+            ></div>
           </article>
 
           <div class="mt-5 grid gap-5 xl:grid-cols-[1fr_1fr]">
             <article class="surface p-4 md:p-5">
-              <h3 class="section-title">Payment Mix</h3>
+              <h3 class="section-title">Payment Distribution</h3>
               <div
                 id="payment-breakdown"
                 class="mt-4 space-y-2"
@@ -776,7 +892,7 @@
             </article>
 
             <article class="surface p-4 md:p-5">
-              <h3 class="section-title">Top Products</h3>
+              <h3 class="section-title">Products Sold</h3>
               <div
                 id="top-products"
                 class="mt-4 space-y-2"
@@ -831,6 +947,27 @@
                     <option value="">All</option>
                     <option value="cash">Cash</option>
                     <option value="upi">UPI</option>
+                  </select>
+                </label>
+                <label class="report-filter-field">
+                  <span>Search</span>
+                  <input
+                    id="history-search-input"
+                    type="text"
+                    placeholder="Bill no or cashier"
+                    class="field-input report-field-input"
+                  />
+                </label>
+                <label class="report-filter-field">
+                  <span>Sort</span>
+                  <select
+                    id="history-sort-select"
+                    class="field-input report-field-input"
+                  >
+                    <option value="newest">Newest first</option>
+                    <option value="oldest">Oldest first</option>
+                    <option value="highest">Total high-low</option>
+                    <option value="lowest">Total low-high</option>
                   </select>
                 </label>
               </div>
@@ -984,6 +1121,11 @@
         </div>
         <p class="section-subtitle mt-1">Align barcode within the box and hold steady.</p>
 
+        <div class="scanner-instruction-list">
+          <p>Keep barcode centered and avoid reflections for faster scans.</p>
+          <p>Use Enter Barcode if camera access is unavailable.</p>
+        </div>
+
         <div
           id="scanner-stage"
           class="scanner-stage mt-3"
@@ -1072,7 +1214,7 @@
 
         <form
           id="barcode-form"
-          class="mt-4 space-y-3"
+          class="mt-4 space-y-3 form-stack"
         >
           <label class="text-sm font-medium text-slate-700">
             Barcode
@@ -1139,7 +1281,7 @@
 
         <form
           id="stock-form"
-          class="mt-4 space-y-3"
+          class="mt-4 space-y-3 form-stack"
         >
           <label class="text-sm font-medium text-slate-700">
             New Stock Quantity
@@ -1147,6 +1289,7 @@
               id="stock-quantity-input"
               required
               type="number"
+              inputmode="numeric"
               min="0"
               step="1"
               class="field-input mt-1"
@@ -1261,24 +1404,75 @@
       class="modal hidden"
     >
       <div class="modal-card bill-modal-card">
-        <div class="modal-head-row flex items-center justify-between gap-3">
-          <h3 class="section-title">Generated Bill</h3>
-          <div class="button-group-inline flex gap-2">
-            <button
-              id="bill-print"
-              class="secondary-btn btn-inline"
-              type="button"
-            >
-              Print
-            </button>
-            <button
-              id="bill-close"
-              class="secondary-btn btn-inline"
-              type="button"
-            >
-              Close
-            </button>
+        <div class="modal-head-row bill-head-row flex items-center justify-between gap-3">
+          <h3 class="section-title">Payment Summary</h3>
+          <button
+            id="bill-close"
+            class="secondary-btn btn-inline"
+            type="button"
+          >
+            Close
+          </button>
+        </div>
+
+        <div class="bill-success-actions mt-3">
+          <button
+            id="bill-download-pdf"
+            class="primary-btn"
+            type="button"
+          >
+            Download PDF
+          </button>
+
+          <label class="bill-phone-field">
+            Customer WhatsApp Number
+            <input
+              id="bill-customer-phone"
+              type="tel"
+              inputmode="tel"
+              autocomplete="tel"
+              list="bill-phone-suggestions"
+              class="field-input"
+              placeholder="e.g. +919876543210"
+            />
+            <datalist id="bill-phone-suggestions"></datalist>
+          </label>
+
+          <div class="bill-link-wrap">
+            <span>Invoice Link</span>
+            <a
+              id="bill-share-link"
+              href="#"
+              target="_blank"
+              rel="noopener noreferrer"
+            ></a>
           </div>
+
+          <button
+            id="bill-whatsapp"
+            class="secondary-btn"
+            type="button"
+          >
+            <span class="btn-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M4 20l1.3-4.2A8.2 8.2 0 1 1 12 20a8.3 8.3 0 0 1-4.1-1.1L4 20z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9.2 8.6c-.2-.4-.4-.4-.6-.4h-.5c-.2 0-.5.1-.7.3s-.8.8-.8 2 .8 2.4.9 2.6c.1.2 1.5 2.4 3.8 3.2 1.8.6 2.3.6 2.7.5.4-.1 1.3-.6 1.4-1.1.2-.5.2-1 .1-1.1-.1-.1-.4-.2-.9-.5s-1-.6-1.2-.6c-.2-.1-.4-.1-.5.1-.2.2-.6.6-.7.8-.2.2-.3.2-.6.1-.3-.2-1.2-.4-2.2-1.5-.8-.9-1.3-1.9-1.5-2.2-.1-.3 0-.5.1-.6l.4-.5c.1-.1.2-.3.3-.4.1-.1 0-.3 0-.4 0-.1-.5-1.2-.7-1.7z"/></svg>
+            </span>
+            <span>Send via WhatsApp</span>
+          </button>
+
+          <p
+            id="bill-send-status"
+            class="bill-send-status"
+          >
+            Not sent yet
+          </p>
+
+          <button
+            id="bill-print"
+            class="secondary-btn"
+            type="button"
+          >
+            Print
+          </button>
         </div>
         <div
           id="bill-content"
@@ -1286,6 +1480,15 @@
         ></div>
       </div>
     </div>
+
+    <button
+      id="floating-new-sale"
+      class="floating-sale-btn"
+      type="button"
+      aria-label="Start new sale"
+    >
+      + New Sale
+    </button>
 
     <div
       id="reset-password-modal"
@@ -1320,7 +1523,7 @@
 
         <form
           id="reset-password-form"
-          class="mt-4 space-y-3"
+          class="mt-4 space-y-3 form-stack"
         >
           <label class="text-sm font-medium text-slate-700">
             New Password
@@ -1425,7 +1628,7 @@
     <script src="./app.config.js"></script>
     <script
       type="module"
-      src="./js/app.js?v=20260406-3"
+      src="./js/app.js?v=20260407-2"
     ></script>
   </body>
 </html>

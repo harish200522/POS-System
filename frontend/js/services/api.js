@@ -101,6 +101,14 @@ export const api = {
   deleteProduct: (id) => request(`/products/${id}`, { method: "DELETE" }),
   updateStock: (id, body) => request(`/products/${id}/stock`, { method: "PATCH", body }),
   processBilling: (body) => request("/billing/process", { method: "POST", body }),
+  getInvoiceShareToken: (invoiceId) =>
+    request(`/billing/invoices/${encodeURIComponent(invoiceId)}/share-token`),
+  getPublicInvoiceByToken: (invoiceId, token) =>
+    request(`/billing/public/${encodeURIComponent(invoiceId)}`, {
+      query: {
+        token,
+      },
+    }),
   createUpiSession: (body) => request("/payments/upi/session", { method: "POST", body }),
   getUpiSessionStatus: (sessionId) =>
     request(`/payments/upi/session/${encodeURIComponent(sessionId)}/status`),
