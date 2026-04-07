@@ -80,13 +80,6 @@
                 aria-label="Quick actions"
               >
                 <button
-                  id="quick-new-sale"
-                  class="secondary-btn btn-inline"
-                  type="button"
-                >
-                  New Sale
-                </button>
-                <button
                   id="quick-add-product"
                   class="secondary-btn btn-inline"
                   type="button"
@@ -215,11 +208,6 @@
                   <p class="section-subtitle">
                     Search by product name or barcode. Use camera scanner for fast checkout.
                   </p>
-                  <div class="shortcut-chip-row mt-3">
-                    <span class="shortcut-chip">F8 Scan</span>
-                    <span class="shortcut-chip">Ctrl+Enter Checkout</span>
-                    <span class="shortcut-chip">Ctrl+K Focus Search</span>
-                  </div>
                 </div>
                 <div class="lookup-actions">
                   <button
@@ -597,59 +585,7 @@
             </article>
           </div>
 
-          <div class="mt-5 grid gap-5 xl:grid-cols-[0.95fr_1.3fr]">
-            <article class="surface p-4 md:p-5">
-              <h2 class="section-title">Account Security</h2>
-              <p class="section-subtitle">Change your own password using your current credentials.</p>
-
-              <form
-                id="change-password-form"
-                class="mt-4 space-y-3 form-stack"
-              >
-                <label class="text-sm font-medium text-slate-700">
-                  Current Password
-                  <input
-                    id="current-password-input"
-                    required
-                    type="password"
-                    autocomplete="current-password"
-                    class="field-input mt-1"
-                  />
-                </label>
-
-                <label class="text-sm font-medium text-slate-700">
-                  New Password
-                  <input
-                    id="new-password-input"
-                    required
-                    type="password"
-                    autocomplete="new-password"
-                    class="field-input mt-1"
-                  />
-                </label>
-
-                <label class="text-sm font-medium text-slate-700">
-                  Confirm New Password
-                  <input
-                    id="confirm-password-input"
-                    required
-                    type="password"
-                    autocomplete="new-password"
-                    class="field-input mt-1"
-                  />
-                </label>
-
-                <p class="text-xs text-slate-500">Password rules: 8-128 characters with at least one letter and one number.</p>
-
-                <button
-                  class="primary-btn"
-                  type="submit"
-                >
-                  Change Password
-                </button>
-              </form>
-            </article>
-
+          <div class="mt-5">
             <article class="surface p-4 md:p-5">
               <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -1480,15 +1416,6 @@
         ></div>
       </div>
     </div>
-
-    <button
-      id="floating-new-sale"
-      class="floating-sale-btn"
-      type="button"
-      aria-label="Start new sale"
-    >
-      + New Sale
-    </button>
 
     <div
       id="reset-password-modal"

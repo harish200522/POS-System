@@ -435,24 +435,6 @@ html[data-theme="dark"] .mesh-bg {
   line-height: 1.45;
 }
 
-.shortcut-chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.shortcut-chip {
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface-soft) 88%, transparent);
-  color: var(--text-soft);
-  padding: 0.22rem 0.58rem;
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 700;
-}
-
 .field-input {
   width: 100%;
   min-height: var(--touch-target);
@@ -1140,9 +1122,9 @@ html[data-theme="dark"] .mesh-bg {
 }
 
 .dashboard-card-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
   gap: 0.4rem;
 }
 
@@ -1197,6 +1179,11 @@ html[data-theme="dark"] .mesh-bg {
   border-radius: 999px;
   padding: 0.2rem 0.5rem;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  max-width: 100%;
+  justify-self: end;
   letter-spacing: 0.01em;
 }
 
@@ -1843,34 +1830,6 @@ html[data-theme="dark"] .mesh-bg {
   background: rgba(253, 230, 138, 0.5);
 }
 
-.floating-sale-btn {
-  position: fixed;
-  right: 0.8rem;
-  bottom: calc(var(--mobile-nav-height) + var(--safe-bottom) + 5.8rem);
-  z-index: 42;
-  border: none;
-  border-radius: 999px;
-  min-height: var(--touch-target);
-  padding: 0.62rem 1rem;
-  color: #ffffff;
-  font-weight: 800;
-  font-size: 0.83rem;
-  letter-spacing: 0.01em;
-  background: linear-gradient(120deg, var(--primary), var(--primary-strong));
-  box-shadow: 0 18px 36px -24px rgba(15, 118, 110, 0.9);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.floating-sale-btn:hover {
-  transform: translateY(-1px);
-}
-
-.floating-sale-btn:disabled {
-  opacity: 0.6;
-  transform: none;
-  box-shadow: none;
-}
-
 .barcode-modal-card,
 .stock-modal-card,
 .reset-password-modal-card,
@@ -2273,10 +2232,6 @@ html[data-theme="dark"] .bill-send-status {
   background: rgba(15, 23, 42, 0.66);
 }
 
-html[data-theme="dark"] .floating-sale-btn {
-  box-shadow: 0 18px 36px -24px rgba(45, 212, 191, 0.75);
-}
-
 @media (min-width: 481px) {
   .auth-actions {
     grid-template-columns: 1fr 1fr;
@@ -2332,10 +2287,6 @@ html[data-theme="dark"] .floating-sale-btn {
 
   .quick-actions {
     grid-template-columns: 1fr 1fr;
-  }
-
-  .quick-actions #quick-sync {
-    grid-column: 1 / -1;
   }
 
   .pos-products-panel {
@@ -2546,12 +2497,6 @@ html[data-theme="dark"] .floating-sale-btn {
     padding-bottom: calc(1.1rem + var(--safe-bottom));
   }
 
-  .floating-sale-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-
   .button-group-inline {
     width: 100%;
     display: grid;
@@ -2616,11 +2561,6 @@ html[data-theme="dark"] .floating-sale-btn {
     white-space: normal;
   }
 
-  .floating-sale-btn {
-    right: 0.65rem;
-    bottom: calc(var(--mobile-nav-height) + var(--safe-bottom) + 5.6rem);
-    padding-inline: 0.92rem;
-  }
 }
 
 @media (max-width: 375px) {
@@ -2718,10 +2658,6 @@ html[data-theme="dark"] .floating-sale-btn {
     font-size: 0.87rem;
     padding: 0.58rem 1rem;
     border-radius: 999px;
-  }
-
-  .floating-sale-btn {
-    display: none;
   }
 
   .pos-grid {

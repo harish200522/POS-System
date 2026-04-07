@@ -304,7 +304,7 @@ export const getPublicInvoice = asyncHandler(async (req, res) => {
   try {
     verifiedToken = verifyInvoiceShareToken(token);
   } catch (error) {
-    if (error?.name === "TokenExpiredError") {
+    if (error?.code === "TOKEN_EXPIRED") {
       throw new ApiError(401, "Invoice link expired. Request a new share link.");
     }
 

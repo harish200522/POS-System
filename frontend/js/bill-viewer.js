@@ -20,9 +20,9 @@ const elements = {
 };
 
 const EXTERNAL_SCRIPT_URLS = {
-  jspdf: "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js",
-  jspdfAutoTable: "https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js",
-  qrcode: "https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js",
+  jspdf: "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
+  jspdfAutoTable: "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js",
+  qrcode: "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js",
 };
 
 const externalScriptLoaders = new Map();
@@ -82,9 +82,9 @@ function buildInvoicePublicLink(invoiceId, payloadToken = "", signedToken = "") 
     const shareUrl = `${configuredBase}/${encodedId}`;
     const queryParams = new URLSearchParams();
     if (signedToken) {
-      queryParams.set("token", signedToken);
+      queryParams.set("t", signedToken);
     } else if (payloadToken) {
-      queryParams.set("payload", payloadToken);
+      queryParams.set("p", payloadToken);
     }
 
     if (!queryParams.toString()) {
@@ -96,13 +96,13 @@ function buildInvoicePublicLink(invoiceId, payloadToken = "", signedToken = "") 
   }
 
   const params = new URLSearchParams({
-    invoiceId: normalizedInvoiceId,
+    i: normalizedInvoiceId,
   });
 
   if (signedToken) {
-    params.set("token", signedToken);
+    params.set("t", signedToken);
   } else if (payloadToken) {
-    params.set("payload", payloadToken);
+    params.set("p", payloadToken);
   }
 
   const localBillUrl = new URL("./bill.html", window.location.href);
@@ -176,7 +176,7 @@ function decodeInvoicePayloadToken(token) {
 
 function getInvoiceIdFromLocation() {
   const url = new URL(window.location.href);
-  const fromQuery = String(url.searchParams.get("invoiceId") || "").trim();
+  const fromQuery = String(url.searchParams.get("i") || url.searchParams.get("invoiceId") || "").trim();
   if (fromQuery) {
     return fromQuery;
   }
@@ -193,12 +193,12 @@ function getInvoiceIdFromLocation() {
 
 function getPayloadTokenFromLocation() {
   const url = new URL(window.location.href);
-  return String(url.searchParams.get("payload") || "").trim();
+  return String(url.searchParams.get("p") || url.searchParams.get("payload") || "").trim();
 }
 
 function getSignedTokenFromLocation() {
   const url = new URL(window.location.href);
-  return String(url.searchParams.get("token") || "").trim();
+  return String(url.searchParams.get("t") || url.searchParams.get("token") || "").trim();
 }
 
 function normalizeInvoiceRecord(rawRecord = {}, fallbackInvoiceId = "") {
@@ -575,12 +575,13 @@ function loadExternalScript(url, globalName) {
 }
 
 async function ensurePdfLibrary() {
-  await Promise.all([
-    loadExternalScript(EXTERNAL_SCRIPT_URLS.jspdf, "jspdf"),
-    loadExternalScript(EXTERNAL_SCRIPT_URLS.jspdfAutoTable),
-  ]);
+  const jsPdfNamespace = await loadExternalScript(EXTERNAL_SCRIPT_URLS.jspdf, "jspdf");
+  try {
+    await loadExternalScript(EXTERNAL_SCRIPT_URLS.jspdfAutoTable);
+  } catch (error) {
+    // Keep PDF download functional with fallback rendering.
+  }
 
-  const jsPdfNamespace = window.jspdf;
   const jsPDF = jsPdfNamespace?.jsPDF;
 
   if (typeof jsPDF !== "function") {
@@ -588,6 +589,56 @@ async function ensurePdfLibrary() {
   }
 
   return jsPDF;
+}
+
+function getAutoTableInvoker(doc) {
+  const autoTableBridge = window.jspdfAutoTable;
+
+  if (typeof doc.autoTable === "function") {
+    return (options) => doc.autoTable(options);
+  }
+
+  if (typeof autoTableBridge === "function") {
+    return (options) => autoTableBridge(doc, options);
+  }
+
+  if (typeof autoTableBridge?.default === "function") {
+    return (options) => autoTableBridge.default(doc, options);
+  }
+
+  if (typeof autoTableBridge?.autoTable === "function") {
+    return (options) => autoTableBridge.autoTable(doc, options);
+  }
+
+  return null;
+}
+
+function renderFallbackPdfTable(doc, { startY = 168, headers = [], rows = [] } = {}) {
+  let currentY = startY;
+
+  if (headers.length) {
+    doc.setFontSize(9);
+    doc.setTextColor(71, 85, 105);
+    doc.text(headers.map((value) => String(value)).join(" | "), 40, currentY);
+    currentY += 14;
+  }
+
+  doc.setTextColor(15, 23, 42);
+  rows.forEach((row) => {
+    const line = (Array.isArray(row) ? row : [row]).map((value) => String(value ?? "-")).join(" | ");
+    const wrappedLine = typeof doc.splitTextToSize === "function" ? doc.splitTextToSize(line, 515) : [line];
+    const lineHeight = wrappedLine.length * 11 + 4;
+
+    if (currentY + lineHeight > 780) {
+      doc.addPage();
+      currentY = 40;
+    }
+
+    doc.text(wrappedLine, 40, currentY);
+    currentY += lineHeight;
+  });
+
+  return currentY;
 }
 
 async function ensureQRCodeLoaded() {
@@ -706,37 +757,38 @@ async function downloadInvoicePdf(invoiceRecord) {
   doc.text(`Invoice Link: ${invoiceRecord.invoiceLink || "N/A"}`, 40, 154);
   doc.setTextColor(15, 23, 42);
 
-  const autoTableInvoker =
-    typeof doc.autoTable === "function"
-      ? (options) => doc.autoTable(options)
-      : typeof window.jspdfAutoTable === "function"
-      ? (options) => window.jspdfAutoTable(doc, options)
-      : null;
+  const autoTableInvoker = getAutoTableInvoker(doc);
+  let footerY = 322;
 
-  if (!autoTableInvoker) {
-    throw new Error("Unable to load PDF table plugin");
+  if (autoTableInvoker) {
+    autoTableInvoker({
+      startY: 168,
+      head: [["Item", "Qty", "Price", "Total"]],
+      body: rows,
+      theme: "striped",
+      styles: {
+        fontSize: 9,
+        cellPadding: 4,
+      },
+      headStyles: {
+        fillColor: [15, 118, 110],
+        textColor: [255, 255, 255],
+      },
+      margin: {
+        left: 40,
+        right: 40,
+      },
+    });
+
+    footerY = doc.lastAutoTable?.finalY ? doc.lastAutoTable.finalY + 22 : 322;
+  } else {
+    footerY =
+      renderFallbackPdfTable(doc, {
+        startY: 168,
+        headers: ["Item", "Qty", "Price", "Total"],
+        rows,
+      }) + 18;
   }
-
-  autoTableInvoker({
-    startY: 168,
-    head: [["Item", "Qty", "Price", "Total"]],
-    body: rows,
-    theme: "striped",
-    styles: {
-      fontSize: 9,
-      cellPadding: 4,
-    },
-    headStyles: {
-      fillColor: [15, 118, 110],
-      textColor: [255, 255, 255],
-    },
-    margin: {
-      left: 40,
-      right: 40,
-    },
-  });
-
-  let footerY = doc.lastAutoTable?.finalY ? doc.lastAutoTable.finalY + 22 : 322;
   const footerRows = [
     ["Subtotal", formatCurrency(invoiceRecord.subtotal || 0)],
     ["Tax", formatCurrency(invoiceRecord.tax || 0)],

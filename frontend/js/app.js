@@ -66,7 +66,8 @@ const elements = {
   pendingBadge: document.getElementById("pending-badge"),
   authUserBadge: document.getElementById("auth-user-badge"),
   logoutButton: document.getElementById("logout-button"),
-  quickNewSaleButton: document.getElementById("quick-new-sale"),
+  headerActionRow: document.querySelector(".header-action-row"),
+  quickActionsToolbar: document.querySelector(".quick-actions"),
   quickAddProductButton: document.getElementById("quick-add-product"),
   quickSyncButton: document.getElementById("quick-sync"),
   themeToggleButton: document.getElementById("theme-toggle-button"),
@@ -110,10 +111,6 @@ const elements = {
   inventorySearchInput: document.getElementById("inventory-search-input"),
   inventoryStatusFilter: document.getElementById("inventory-status-filter"),
   inventorySortSelect: document.getElementById("inventory-sort-select"),
-  changePasswordForm: document.getElementById("change-password-form"),
-  currentPasswordInput: document.getElementById("current-password-input"),
-  newPasswordInput: document.getElementById("new-password-input"),
-  confirmPasswordInput: document.getElementById("confirm-password-input"),
   userRefreshButton: document.getElementById("user-refresh-button"),
   userTableBody: document.getElementById("user-table-body"),
   userSearchInput: document.getElementById("user-search-input"),
@@ -196,8 +193,6 @@ const elements = {
   billWhatsapp: document.getElementById("bill-whatsapp"),
   billPrint: document.getElementById("bill-print"),
 
-  floatingNewSaleButton: document.getElementById("floating-new-sale"),
-
   authModal: document.getElementById("auth-modal"),
   authForm: document.getElementById("auth-form"),
   authUsername: document.getElementById("auth-username"),
@@ -254,13 +249,6 @@ const UPI_CONFIG = {
 };
 
 const THEME_STORAGE_KEY = "countercraft_theme";
-
-const SHORTCUT_HINTS = {
-  scan: "F8",
-  checkout: "Ctrl+Enter",
-  search: "Ctrl+K",
-  newSale: "Alt+N",
-};
 
 const EXTERNAL_SCRIPT_URLS = {
   qrcode: "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js",
@@ -478,9 +466,9 @@ function buildInvoicePublicLink(invoiceId) {
     const shareUrl = `${configuredBase}/${encodedId}`;
     const queryParams = new URLSearchParams();
     if (signedToken) {
-      queryParams.set("token", signedToken);
+      queryParams.set("t", signedToken);
     } else if (payloadToken) {
-      queryParams.set("payload", payloadToken);
+      queryParams.set("p", payloadToken);
     }
 
     if (!queryParams.toString()) {
@@ -492,13 +480,13 @@ function buildInvoicePublicLink(invoiceId) {
   }
 
   const params = new URLSearchParams({
-    invoiceId: normalizedInvoiceId,
+    i: normalizedInvoiceId,
   });
 
   if (signedToken) {
-    params.set("token", signedToken);
+    params.set("t", signedToken);
   } else if (payloadToken) {
-    params.set("payload", payloadToken);
+    params.set("p", payloadToken);
   }
 
   const localBillUrl = new URL("./bill.html", window.location.href);
@@ -1151,7 +1139,11 @@ function setExportButtonsBusy({ buttons, activeButton, loadingLabel, busy }) {
 
 async function ensurePdfLibrary() {
   const jsPdfNamespace = await loadExternalScript(EXTERNAL_SCRIPT_URLS.jspdf, "jspdf");
-  await loadExternalScript(EXTERNAL_SCRIPT_URLS.jspdfAutoTable);
+  try {
+    await loadExternalScript(EXTERNAL_SCRIPT_URLS.jspdfAutoTable);
+  } catch (error) {
+    // Keep PDF export functional even if the table plugin fails to load.
+  }
 
   const jsPDF = jsPdfNamespace?.jsPDF;
   if (typeof jsPDF !== "function") {
@@ -1159,6 +1151,56 @@ async function ensurePdfLibrary() {
   }
 
   return jsPDF;
+}
+
+function getAutoTableInvoker(doc) {
+  const autoTableBridge = window.jspdfAutoTable;
+
+  if (typeof doc.autoTable === "function") {
+    return (options) => doc.autoTable(options);
+  }
+
+  if (typeof autoTableBridge === "function") {
+    return (options) => autoTableBridge(doc, options);
+  }
+
+  if (typeof autoTableBridge?.default === "function") {
+    return (options) => autoTableBridge.default(doc, options);
+  }
+
+  if (typeof autoTableBridge?.autoTable === "function") {
+    return (options) => autoTableBridge.autoTable(doc, options);
+  }
+
+  return null;
+}
+
+function renderFallbackPdfTable(doc, { startY = 168, headers = [], rows = [] } = {}) {
+  let currentY = startY;
+
+  if (headers.length) {
+    doc.setFontSize(9);
+    doc.setTextColor(71, 85, 105);
+    doc.text(headers.map((value) => String(value)).join(" | "), 40, currentY);
+    currentY += 14;
+  }
+
+  doc.setTextColor(15, 23, 42);
+  rows.forEach((row) => {
+    const line = (Array.isArray(row) ? row : [row]).map((value) => String(value ?? "-")).join(" | ");
+    const wrappedLine = typeof doc.splitTextToSize === "function" ? doc.splitTextToSize(line, 515) : [line];
+    const lineHeight = wrappedLine.length * 11 + 4;
+
+    if (currentY + lineHeight > 780) {
+      doc.addPage();
+      currentY = 40;
+    }
+
+    doc.text(wrappedLine, 40, currentY);
+    currentY += lineHeight;
+  });
+
+  return currentY;
 }
 
 async function exportTablePdf({ title, subtitleLines, columns, rows, fileName }) {
@@ -1180,38 +1222,39 @@ async function exportTablePdf({ title, subtitleLines, columns, rows, fileName })
     currentY += 13;
   });
 
-  const autoTableInvoker =
-    typeof doc.autoTable === "function"
-      ? (options) => doc.autoTable(options)
-      : typeof window.jspdfAutoTable === "function"
-      ? (options) => window.jspdfAutoTable(doc, options)
-      : null;
+  const tableHeaders = columns.map((column) => column.header);
+  const tableRows = rows.map((row) => columns.map((column) => String(column.getValue(row) ?? "-")));
+  const autoTableInvoker = getAutoTableInvoker(doc);
 
-  if (!autoTableInvoker) {
-    throw new Error("Unable to load PDF table plugin");
+  if (autoTableInvoker) {
+    autoTableInvoker({
+      startY: currentY + 4,
+      head: [tableHeaders],
+      body: tableRows,
+      theme: "striped",
+      styles: {
+        fontSize: 9,
+        cellPadding: 4,
+        lineColor: [220, 226, 236],
+        lineWidth: 0.5,
+      },
+      headStyles: {
+        fillColor: [93, 82, 63],
+        textColor: [255, 255, 255],
+        fontStyle: "bold",
+      },
+      margin: {
+        left: 40,
+        right: 40,
+      },
+    });
+  } else {
+    renderFallbackPdfTable(doc, {
+      startY: currentY + 8,
+      headers: tableHeaders,
+      rows: tableRows,
+    });
   }
-
-  autoTableInvoker({
-    startY: currentY + 4,
-    head: [columns.map((column) => column.header)],
-    body: rows.map((row) => columns.map((column) => String(column.getValue(row) ?? "-"))),
-    theme: "striped",
-    styles: {
-      fontSize: 9,
-      cellPadding: 4,
-      lineColor: [220, 226, 236],
-      lineWidth: 0.5,
-    },
-    headStyles: {
-      fillColor: [93, 82, 63],
-      textColor: [255, 255, 255],
-      fontStyle: "bold",
-    },
-    margin: {
-      left: 40,
-      right: 40,
-    },
-  });
 
   doc.save(fileName);
 }
@@ -1335,37 +1378,39 @@ async function downloadBillPdfFile(invoiceRecord) {
   doc.text(`Invoice Link: ${invoiceRecord.invoiceLink || "N/A"}`, 40, 154);
   doc.setTextColor(15, 23, 42);
 
-  const autoTableInvoker =
-    typeof doc.autoTable === "function"
-      ? (options) => doc.autoTable(options)
-      : typeof window.jspdfAutoTable === "function"
-      ? (options) => window.jspdfAutoTable(doc, options)
-      : null;
+  const autoTableInvoker = getAutoTableInvoker(doc);
+  let footerY = 322;
 
-  if (!autoTableInvoker) {
-    throw new Error("Unable to load PDF table plugin");
+  if (autoTableInvoker) {
+    autoTableInvoker({
+      startY: 168,
+      head: [["Item", "Qty", "Price", "Total"]],
+      body: rows,
+      theme: "striped",
+      styles: {
+        fontSize: 9,
+        cellPadding: 4,
+      },
+      headStyles: {
+        fillColor: [15, 118, 110],
+        textColor: [255, 255, 255],
+      },
+      margin: {
+        left: 40,
+        right: 40,
+      },
+    });
+
+    footerY = doc.lastAutoTable?.finalY ? doc.lastAutoTable.finalY + 22 : 322;
+  } else {
+    footerY =
+      renderFallbackPdfTable(doc, {
+        startY: 168,
+        headers: ["Item", "Qty", "Price", "Total"],
+        rows,
+      }) + 18;
   }
 
-  autoTableInvoker({
-    startY: 168,
-    head: [["Item", "Qty", "Price", "Total"]],
-    body: rows,
-    theme: "striped",
-    styles: {
-      fontSize: 9,
-      cellPadding: 4,
-    },
-    headStyles: {
-      fillColor: [15, 118, 110],
-      textColor: [255, 255, 255],
-    },
-    margin: {
-      left: 40,
-      right: 40,
-    },
-  });
-
-  let footerY = doc.lastAutoTable?.finalY ? doc.lastAutoTable.finalY + 22 : 322;
   const footerRows = [
     ["Subtotal", formatCurrency(invoiceRecord.subtotal || 0)],
     ["Tax", formatCurrency(invoiceRecord.tax || 0)],
@@ -1749,6 +1794,41 @@ function setAppLocked(isLocked) {
   document.body.classList.toggle("app-locked", Boolean(isLocked));
 }
 
+function updateAdminOnlyHeaderControls() {
+  const isAdminTabActive = state.activeTab === "admin" && String(state.authUser?.role || "").toLowerCase() === "admin";
+
+  if (elements.pendingBadge) {
+    elements.pendingBadge.classList.toggle("hidden", !isAdminTabActive);
+  }
+
+  if (elements.quickSyncButton) {
+    elements.quickSyncButton.classList.toggle("hidden", !isAdminTabActive);
+  }
+
+  if (elements.themeToggleButton) {
+    elements.themeToggleButton.classList.toggle("hidden", !isAdminTabActive);
+  }
+
+  if (elements.quickAddProductButton) {
+    elements.quickAddProductButton.classList.toggle("hidden", !isAdminTabActive);
+  }
+
+  if (elements.quickActionsToolbar) {
+    const hasVisibleQuickAction = [elements.quickAddProductButton, elements.quickSyncButton].some(
+      (button) => button && !button.classList.contains("hidden")
+    );
+    elements.quickActionsToolbar.classList.toggle("hidden", !hasVisibleQuickAction);
+  }
+
+  if (elements.headerActionRow) {
+    const hasVisibleThemeButton =
+      Boolean(elements.themeToggleButton) && !elements.themeToggleButton.classList.contains("hidden");
+    const hasVisibleQuickToolbar =
+      Boolean(elements.quickActionsToolbar) && !elements.quickActionsToolbar.classList.contains("hidden");
+    elements.headerActionRow.classList.toggle("hidden", !(hasVisibleThemeButton || hasVisibleQuickToolbar));
+  }
+}
+
 function updateAuthBadge() {
   const user = state.authUser;
 
@@ -1757,18 +1837,13 @@ function updateAuthBadge() {
   if (!user) {
     elements.authUserBadge.textContent = "Not signed in";
     elements.logoutButton.classList.add("hidden");
-    if (elements.quickNewSaleButton) {
-      elements.quickNewSaleButton.disabled = true;
-    }
     if (elements.quickSyncButton) {
       elements.quickSyncButton.disabled = true;
     }
     if (elements.quickAddProductButton) {
       elements.quickAddProductButton.disabled = true;
     }
-    if (elements.floatingNewSaleButton) {
-      elements.floatingNewSaleButton.disabled = true;
-    }
+    updateAdminOnlyHeaderControls();
     return;
   }
 
@@ -1778,10 +1853,6 @@ function updateAuthBadge() {
   elements.authUserBadge.classList.add(role === "admin" ? "auth-badge-admin" : "auth-badge-cashier");
   elements.logoutButton.classList.remove("hidden");
 
-  if (elements.quickNewSaleButton) {
-    elements.quickNewSaleButton.disabled = false;
-  }
-
   if (elements.quickSyncButton) {
     elements.quickSyncButton.disabled = false;
   }
@@ -1790,9 +1861,7 @@ function updateAuthBadge() {
     elements.quickAddProductButton.disabled = role !== "admin";
   }
 
-  if (elements.floatingNewSaleButton) {
-    elements.floatingNewSaleButton.disabled = false;
-  }
+  updateAdminOnlyHeaderControls();
 }
 
 function applyRoleAccess() {
@@ -2532,7 +2601,7 @@ function handleGlobalShortcutKeydown(event) {
     event.preventDefault();
     setActiveTab("pos");
     clearCart();
-    showToast(`New sale started (${SHORTCUT_HINTS.newSale})`, "info");
+    showToast("New sale started", "info");
     return;
   }
 
@@ -2741,6 +2810,7 @@ function setActiveTab(tabName) {
   }
 
   state.activeTab = tabName;
+  updateAdminOnlyHeaderControls();
 
   if (tabName !== "pos") {
     setMobileCartOpen(false);
@@ -3237,7 +3307,7 @@ function formatTrendDelta(currentValue, previousValue, { inverse = false } = {})
   if (previous <= 0) {
     if (current > 0) {
       return {
-        text: "New activity in latest period",
+        text: "New activity",
         tone: "up",
       };
     }
@@ -3562,8 +3632,26 @@ function renderTrendChart(trend) {
     return;
   }
 
+  if (normalizedTrend.length === 1) {
+    const entry = normalizedTrend[0];
+
+    elements.trendChart.innerHTML = `
+      <div class="trend-chart-shell">
+        <div class="trend-summary-grid">
+          <div class="trend-summary-item">
+            <p>${entry.label}</p>
+            <strong>${formatCurrency(entry.revenue)}</strong>
+            <span>${formatNumber(entry.transactions)} orders</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    return;
+  }
+
   const chartWidth = 620;
-  const chartHeight = 180;
+  const chartHeight = normalizedTrend.length <= 2 ? 140 : 180;
   const paddingX = 24;
   const paddingY = 20;
   const chartBottom = chartHeight - paddingY;
@@ -4710,14 +4798,6 @@ function bindEvents() {
     void logoutUser("Logged out successfully.");
   });
 
-  if (elements.quickNewSaleButton) {
-    elements.quickNewSaleButton.addEventListener("click", () => {
-      setActiveTab("pos");
-      clearCart();
-      showToast("New sale started", "info");
-    });
-  }
-
   if (elements.quickAddProductButton) {
     elements.quickAddProductButton.addEventListener("click", () => {
       openAdminProductCreate();
@@ -4737,20 +4817,6 @@ function bindEvents() {
   if (elements.themeToggleButton) {
     elements.themeToggleButton.addEventListener("click", () => {
       toggleTheme();
-    });
-  }
-
-  if (elements.floatingNewSaleButton) {
-    elements.floatingNewSaleButton.addEventListener("click", () => {
-      if (!state.authReady) {
-        openAuthModal("Please sign in to start billing.");
-        return;
-      }
-
-      setActiveTab("pos");
-      clearCart();
-      focusProductSearch();
-      showToast("New sale started", "info");
     });
   }
 
@@ -4989,44 +5055,6 @@ function bindEvents() {
   });
 
   elements.productFormCancel.addEventListener("click", resetProductForm);
-
-  if (elements.changePasswordForm) {
-    elements.changePasswordForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-
-      const currentPassword = elements.currentPasswordInput.value;
-      const newPassword = elements.newPasswordInput.value;
-      const confirmPassword = elements.confirmPasswordInput.value;
-
-      if (!currentPassword) {
-        showToast("Current password is required", "error");
-        return;
-      }
-
-      if (currentPassword === newPassword) {
-        showToast("New password must be different from current password", "error");
-        return;
-      }
-
-      const validationMessage = getPasswordValidationMessage(newPassword, confirmPassword);
-      if (validationMessage) {
-        showToast(validationMessage, "error");
-        return;
-      }
-
-      try {
-        await api.changePassword({
-          currentPassword,
-          newPassword,
-        });
-
-        elements.changePasswordForm.reset();
-        showToast("Password changed successfully", "success");
-      } catch (error) {
-        showToast(error.message || "Unable to change password", "error");
-      }
-    });
-  }
 
   if (elements.userRefreshButton) {
     elements.userRefreshButton.addEventListener("click", async () => {
