@@ -181,9 +181,14 @@ const SCANNER_DEBUG_ENABLED =
 const SCANNER_CONFIG = {
   noDetectionTimeoutMs: 14000,
   successCooldownMs: 1300,
-  confirmationHits: 2,
+  confirmationHits: 1,
   confirmationWindowMs: 1800,
-  minAcceptedLength: 4,
+  minAcceptedLength: 3,
+};
+const KEYBOARD_WEDGE_CONFIG = {
+  interKeyTimeoutMs: 85,
+  maxBufferLength: 64,
+  minCodeLength: 3,
 };
 const UPI_CONFIG = {
   upiId: "hri41468@oksbi",
@@ -198,6 +203,9 @@ const EXTERNAL_SCRIPT_URLS = {
 
 const externalScriptLoaders = new Map();
 const modalFocusReturnMap = new WeakMap();
+
+let keyboardWedgeBuffer = "";
+let keyboardWedgeLastAt = 0;
 
 const ROLE_TAB_ACCESS = {
   admin: ["pos", "admin", "dashboard", "history"],
@@ -1246,6 +1254,84 @@ function normalizeBarcode(value) {
     .trim()
     .replace(/[^a-zA-Z0-9]/g, "")
     .toUpperCase();
+}
+
+function isLikelyBarcodeValue(value) {
+  const rawValue = String(value || "").trim();
+
+  if (!rawValue || rawValue.length > KEYBOARD_WEDGE_CONFIG.maxBufferLength) {
+    return false;
+  }
+
+  if (/\s/.test(rawValue)) {
+    return false;
+  }
+
+  return normalizeBarcode(rawValue).length >= KEYBOARD_WEDGE_CONFIG.minCodeLength;
+}
+
+function resetKeyboardWedgeBuffer() {
+  keyboardWedgeBuffer = "";
+  keyboardWedgeLastAt = 0;
+}
+
+function isEditableElement(target) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  const tagName = target.tagName;
+  return (
+    target.isContentEditable ||
+    tagName === "INPUT" ||
+    tagName === "TEXTAREA" ||
+    tagName === "SELECT"
+  );
+}
+
+function handleKeyboardWedgeKeydown(event) {
+  if (!state.authReady || state.activeTab !== "pos") {
+    resetKeyboardWedgeBuffer();
+    return;
+  }
+
+  if (event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey) {
+    return;
+  }
+
+  const target = event.target;
+  if (isEditableElement(target) && target !== elements.searchInput) {
+    resetKeyboardWedgeBuffer();
+    return;
+  }
+
+  const key = String(event.key || "");
+  const now = Date.now();
+
+  if (key === "Enter") {
+    const scannedValue = keyboardWedgeBuffer;
+    resetKeyboardWedgeBuffer();
+
+    if (isLikelyBarcodeValue(scannedValue)) {
+      event.preventDefault();
+      void applyScannedBarcode(scannedValue, "Scanned");
+    }
+
+    return;
+  }
+
+  if (key.length !== 1 || !/^[0-9A-Za-z\-._/]+$/.test(key)) {
+    if (key !== "Shift") {
+      resetKeyboardWedgeBuffer();
+    }
+    return;
+  }
+
+  const shouldResetBuffer = now - keyboardWedgeLastAt > KEYBOARD_WEDGE_CONFIG.interKeyTimeoutMs;
+  keyboardWedgeBuffer = shouldResetBuffer
+    ? key
+    : `${keyboardWedgeBuffer}${key}`.slice(-KEYBOARD_WEDGE_CONFIG.maxBufferLength);
+  keyboardWedgeLastAt = now;
 }
 
 function normalizeProductEntry(product = {}) {
@@ -2965,6 +3051,9 @@ function bindEvents() {
   });
 
   document.addEventListener("keydown", handleGlobalModalKeydown);
+  document.addEventListener("keydown", handleKeyboardWedgeKeydown);
+
+  window.addEventListener("blur", resetKeyboardWedgeBuffer);
 
   window.addEventListener("resize", () => {
     syncMobileCartRail();
