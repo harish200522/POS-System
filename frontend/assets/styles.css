@@ -2700,6 +2700,10 @@ html[data-theme="dark"] .checkout-summary {
 }
 
 @media (max-width: 768px) {
+  .app-body.mobile-cart-rail-visible .app-shell {
+    padding-bottom: calc(var(--mobile-nav-height) + var(--safe-bottom) + 7.1rem);
+  }
+
   .header-action-row {
     flex-direction: column;
     align-items: stretch;

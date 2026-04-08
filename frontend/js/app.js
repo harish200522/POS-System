@@ -3089,8 +3089,9 @@ function syncMobileCartRail() {
   }
 
   const railAllowed = isMobileViewport() && state.activeTab === "pos";
-  const shouldShowRail = railAllowed && !state.mobileCartOpen;
+  const shouldShowRail = railAllowed && !state.mobileCartOpen && itemCount > 0;
   elements.mobileCartRail.classList.toggle("hidden", !shouldShowRail);
+  document.body.classList.toggle("mobile-cart-rail-visible", shouldShowRail);
 
   if (!railAllowed && state.mobileCartOpen) {
     setMobileCartOpen(false);
