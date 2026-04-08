@@ -37,11 +37,27 @@ function parseDurationToMs(durationValue, fallbackMs = DEFAULT_COOKIE_MAX_AGE_MS
   return amount * multiplierByUnit[unit];
 }
 
+function resolveCookieTransportOptions() {
+  if (env.isProduction) {
+    // Cross-origin frontend deployments require SameSite=None with secure cookies.
+    return {
+      secure: true,
+      sameSite: "none",
+    };
+  }
+
+  return {
+    secure: false,
+    sameSite: "lax",
+  };
+}
+
 export function getAccessTokenCookieOptions() {
+  const transportOptions = resolveCookieTransportOptions();
+
   return {
     httpOnly: true,
-    secure: true,
-    sameSite: "strict",
+    ...transportOptions,
     path: "/",
     maxAge: parseDurationToMs(env.jwtExpiresIn),
   };
