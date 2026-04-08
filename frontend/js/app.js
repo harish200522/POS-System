@@ -5957,4 +5957,21 @@ async function init() {
   await loadInitialData();
 }
 
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) {
+    console.info("[PWA] Service workers are not supported in this browser.");
+    return;
+  }
+
+  window.addEventListener("load", async () => {
+    try {
+      const registration = await navigator.serviceWorker.register("/sw.js");
+      console.info("[PWA] Service worker registered with scope:", registration.scope);
+    } catch (error) {
+      console.error("[PWA] Service worker registration failed:", error);
+    }
+  });
+}
+
+registerServiceWorker();
 init();
