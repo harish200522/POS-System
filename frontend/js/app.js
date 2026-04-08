@@ -1880,8 +1880,7 @@ function updateAdminOnlyHeaderControls() {
   }
 
   if (elements.themeToggleButton) {
-    // Theme switching is available in both light and dark mode for all users and tabs.
-    elements.themeToggleButton.classList.remove("hidden");
+    elements.themeToggleButton.classList.toggle("hidden", !isAdminTabActive);
   }
 
   if (elements.quickAddProductButton) {
