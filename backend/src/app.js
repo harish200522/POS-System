@@ -85,7 +85,9 @@ app.use(
         return callback(null, true);
       }
 
-      if (env.clientOrigins.includes(origin)) {
+      const normalizedOrigin = String(origin).trim().replace(/\/+$/, "");
+
+      if (env.clientOrigins.includes(normalizedOrigin)) {
         return callback(null, true);
       }
 

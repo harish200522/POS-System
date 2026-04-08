@@ -12,12 +12,18 @@ function asNumber(value, defaultValue) {
   return Number.isFinite(parsed) ? parsed : defaultValue;
 }
 
+function normalizeOrigin(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\/+$/, "");
+}
+
 function parseOrigins(value, fallback = []) {
   if (!value) return fallback;
 
   return String(value)
     .split(",")
-    .map((entry) => entry.trim())
+    .map((entry) => normalizeOrigin(entry))
     .filter(Boolean);
 }
 
