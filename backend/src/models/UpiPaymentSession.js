@@ -3,11 +3,10 @@ import mongoose from "mongoose";
 const upiPaymentSessionSchema = new mongoose.Schema(
   {
     shopId: {
-      type: String,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Shop",
       required: true,
       index: true,
-      trim: true,
-      maxlength: 120,
     },
     sessionId: {
       type: String,
@@ -26,6 +25,7 @@ const upiPaymentSessionSchema = new mongoose.Schema(
     providerPaymentLinkId: {
       type: String,
       required: true,
+      unique: true,
       index: true,
       trim: true,
     },

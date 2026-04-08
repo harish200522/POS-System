@@ -163,6 +163,16 @@ function safeTextValue(result) {
   return "";
 }
 
+function clearElementChildren(element) {
+  if (!element) {
+    return;
+  }
+
+  while (element.firstChild) {
+    element.removeChild(element.firstChild);
+  }
+}
+
 function getTrackCapabilities(track) {
   if (!track || typeof track.getCapabilities !== "function") {
     return {};
@@ -385,7 +395,7 @@ class ProductionBarcodeScanner {
     this.updateControlState();
 
     if (this.viewportElement) {
-      this.viewportElement.innerHTML = "";
+      clearElementChildren(this.viewportElement);
     }
   }
 
@@ -472,7 +482,7 @@ class ProductionBarcodeScanner {
     }
 
     if (this.viewportElement) {
-      this.viewportElement.innerHTML = "";
+      clearElementChildren(this.viewportElement);
     }
 
     const constraints = this.buildVideoConstraints(preferredCameraId).video;
@@ -551,7 +561,7 @@ class ProductionBarcodeScanner {
       return;
     }
 
-    this.viewportElement.innerHTML = "";
+    clearElementChildren(this.viewportElement);
 
     const videoElement = document.createElement("video");
     videoElement.setAttribute("playsinline", "true");

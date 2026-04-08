@@ -3,12 +3,9 @@ import mongoose from "mongoose";
 const paymentSettingsSchema = new mongoose.Schema(
   {
     shopId: {
-      type: String,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Shop",
       required: true,
-      unique: true,
-      index: true,
-      trim: true,
-      maxlength: 120,
     },
     upiId: {
       type: String,
@@ -27,6 +24,8 @@ const paymentSettingsSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+paymentSettingsSchema.index({ shopId: 1 }, { unique: true });
 
 const PaymentSettings = mongoose.model("PaymentSettings", paymentSettingsSchema);
 

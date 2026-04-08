@@ -1,6 +1,6 @@
 import { api } from "./services/api.js";
 import {
-  getInvoiceRecordById,
+  getInvoiceRecords,
   getSavedCustomerPhones,
   markInvoiceWhatsappSent,
   rememberCustomerPhone,
@@ -27,10 +27,21 @@ const EXTERNAL_SCRIPT_URLS = {
 
 const externalScriptLoaders = new Map();
 let activeInvoice = null;
+const SHARE_ID_REGEX = /^[A-Za-z0-9_-]{24,128}$/;
 
 function asNumber(value, fallback = 0) {
   const parsedValue = Number(value);
   return Number.isFinite(parsedValue) ? parsedValue : fallback;
+}
+
+function clearElementChildren(element) {
+  if (!element) {
+    return;
+  }
+
+  while (element.firstChild) {
+    element.removeChild(element.firstChild);
+  }
 }
 
 function getRuntimeConfigValue(key) {
@@ -69,44 +80,20 @@ function getShopProfileFallback() {
   };
 }
 
-function buildInvoicePublicLink(invoiceId, payloadToken = "", signedToken = "") {
+function buildInvoicePublicLink(shareId) {
   const configuredBase = getRuntimeConfigValue("BILL_PUBLIC_BASE_URL").replace(/\/$/, "");
-  const normalizedInvoiceId = String(invoiceId || "").trim();
-  const encodedId = encodeURIComponent(normalizedInvoiceId);
+  const normalizedShareId = String(shareId || "").trim();
 
-  if (!normalizedInvoiceId) {
-    return window.location.href;
+  if (!normalizedShareId) {
+    return "";
   }
 
   if (configuredBase) {
-    const shareUrl = `${configuredBase}/${encodedId}`;
-    const queryParams = new URLSearchParams();
-    if (signedToken) {
-      queryParams.set("t", signedToken);
-    } else if (payloadToken) {
-      queryParams.set("p", payloadToken);
-    }
-
-    if (!queryParams.toString()) {
-      return shareUrl;
-    }
-
-    const separator = shareUrl.includes("?") ? "&" : "?";
-    return `${shareUrl}${separator}${queryParams.toString()}`;
-  }
-
-  const params = new URLSearchParams({
-    i: normalizedInvoiceId,
-  });
-
-  if (signedToken) {
-    params.set("t", signedToken);
-  } else if (payloadToken) {
-    params.set("p", payloadToken);
+    return `${configuredBase}/${encodeURIComponent(normalizedShareId)}`;
   }
 
   const localBillUrl = new URL("./bill.html", window.location.href);
-  localBillUrl.search = params.toString();
+  localBillUrl.hash = `share/${encodeURIComponent(normalizedShareId)}`;
   return localBillUrl.toString();
 }
 
@@ -125,87 +112,55 @@ function normalizeInvoiceItems(items = []) {
     .slice(0, 250);
 }
 
-function createInvoicePayloadToken(invoiceRecord = {}) {
-  const payload = {
-    invoiceId: String(invoiceRecord.invoiceId || ""),
-    billNumber: String(invoiceRecord.billNumber || ""),
-    createdAt: String(invoiceRecord.createdAt || ""),
-    shop: invoiceRecord.shop || {},
-    items: normalizeInvoiceItems(invoiceRecord.items || []),
-    subtotal: Math.max(asNumber(invoiceRecord.subtotal), 0),
-    tax: Math.max(asNumber(invoiceRecord.tax), 0),
-    discount: Math.max(asNumber(invoiceRecord.discount), 0),
-    total: Math.max(asNumber(invoiceRecord.total), 0),
-    paymentMethod: String(invoiceRecord.paymentMethod || "cash"),
-    paidAmount: Math.max(asNumber(invoiceRecord.paidAmount), 0),
-    changeDue: Math.max(asNumber(invoiceRecord.changeDue), 0),
-    cashier: String(invoiceRecord.cashier || "Default Cashier"),
-  };
-
-  const jsonPayload = JSON.stringify(payload);
-  const utf8Payload = unescape(encodeURIComponent(jsonPayload));
-  const base64Payload = btoa(utf8Payload);
-  return base64Payload.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
-function decodeInvoicePayloadToken(token) {
-  const normalizedToken = String(token || "").trim();
-  if (!normalizedToken) {
-    return null;
-  }
-
+function safeDecodeURIComponent(value) {
   try {
-    const paddedToken = normalizedToken.replace(/-/g, "+").replace(/_/g, "/");
-    const requiredPadding = (4 - (paddedToken.length % 4)) % 4;
-    const base64Token = `${paddedToken}${"=".repeat(requiredPadding)}`;
-    const binary = atob(base64Token);
-
-    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-    const decodedJson = new TextDecoder().decode(bytes);
-    const parsedPayload = JSON.parse(decodedJson);
-
-    if (!parsedPayload || typeof parsedPayload !== "object") {
-      return null;
-    }
-
-    return parsedPayload;
+    return decodeURIComponent(String(value || ""));
   } catch (error) {
-    return null;
+    return String(value || "");
   }
 }
 
-function getInvoiceIdFromLocation() {
+function getShareIdFromLocation() {
   const url = new URL(window.location.href);
-  const fromQuery = String(url.searchParams.get("i") || url.searchParams.get("invoiceId") || "").trim();
-  if (fromQuery) {
-    return fromQuery;
+  const hashValue = String(url.hash || "").replace(/^#/, "").trim();
+
+  if (hashValue) {
+    const hashParts = hashValue.split("/").filter(Boolean);
+    const hashCandidate = safeDecodeURIComponent(hashParts[hashParts.length - 1] || "").trim();
+    if (SHARE_ID_REGEX.test(hashCandidate)) {
+      return hashCandidate;
+    }
   }
 
   const pathParts = url.pathname.split("/").filter(Boolean);
-  const lastSegment = pathParts[pathParts.length - 1] || "";
+  const lastPathSegment = safeDecodeURIComponent(pathParts[pathParts.length - 1] || "").trim();
 
-  if (lastSegment && !/bill\.html$/i.test(lastSegment)) {
-    return decodeURIComponent(lastSegment);
+  if (lastPathSegment && !/bill\.html$/i.test(lastPathSegment) && SHARE_ID_REGEX.test(lastPathSegment)) {
+    return lastPathSegment;
   }
 
   return "";
 }
 
-function getPayloadTokenFromLocation() {
-  const url = new URL(window.location.href);
-  return String(url.searchParams.get("p") || url.searchParams.get("payload") || "").trim();
+function findCachedInvoiceByShareId(shareId) {
+  const normalizedShareId = String(shareId || "").trim();
+  if (!normalizedShareId) {
+    return null;
+  }
+
+  const cachedInvoices = getInvoiceRecords();
+  return (
+    cachedInvoices.find((entry) => String(entry?.shareId || "").trim() === normalizedShareId) || null
+  );
 }
 
-function getSignedTokenFromLocation() {
-  const url = new URL(window.location.href);
-  return String(url.searchParams.get("t") || url.searchParams.get("token") || "").trim();
-}
-
-function normalizeInvoiceRecord(rawRecord = {}, fallbackInvoiceId = "") {
-  const invoiceId = String(rawRecord.invoiceId || fallbackInvoiceId || "").trim();
+function normalizeInvoiceRecord(rawRecord = {}, fallbackShareId = "") {
+  const invoiceId = String(rawRecord.invoiceId || "").trim();
   if (!invoiceId) {
     return null;
   }
+
+  const shareId = String(rawRecord.shareId || fallbackShareId || "").trim();
 
   const createdAt = String(rawRecord.createdAt || new Date().toISOString());
   const items = normalizeInvoiceItems(rawRecord.items || []);
@@ -232,9 +187,8 @@ function normalizeInvoiceRecord(rawRecord = {}, fallbackInvoiceId = "") {
     sentAt: String(rawRecord.sentAt || "").trim(),
     source: String(rawRecord.source || "shared-link"),
     isOffline: Boolean(rawRecord.isOffline),
-    sharePayload: String(rawRecord.sharePayload || "").trim(),
-    signedToken: String(rawRecord.signedToken || "").trim(),
-    signedTokenExpiresAt: String(rawRecord.signedTokenExpiresAt || "").trim(),
+    shareId,
+    shareIdExpiresAt: String(rawRecord.shareIdExpiresAt || rawRecord.expiresAt || "").trim(),
   };
 
   if (!invoiceRecord.total && items.length) {
@@ -249,34 +203,27 @@ function normalizeInvoiceRecord(rawRecord = {}, fallbackInvoiceId = "") {
     invoiceRecord.paidAmount = invoiceRecord.total;
   }
 
-  if (!invoiceRecord.sharePayload) {
-    invoiceRecord.sharePayload = createInvoicePayloadToken(invoiceRecord);
-  }
-
   invoiceRecord.invoiceLink =
     String(rawRecord.invoiceLink || "").trim() ||
-    buildInvoicePublicLink(invoiceRecord.invoiceId, invoiceRecord.sharePayload, invoiceRecord.signedToken);
+    buildInvoicePublicLink(invoiceRecord.shareId);
 
   return invoiceRecord;
 }
 
-async function fetchPublicInvoiceRecordByToken(invoiceId, signedToken) {
-  const normalizedInvoiceId = String(invoiceId || "").trim();
-  const normalizedToken = String(signedToken || "").trim();
-
-  if (!normalizedInvoiceId || !normalizedToken) {
+async function fetchPublicInvoiceRecordByShareId(shareId) {
+  const normalizedShareId = String(shareId || "").trim();
+  if (!normalizedShareId) {
     return null;
   }
 
   try {
-    const response = await api.getPublicInvoiceByToken(normalizedInvoiceId, normalizedToken);
+    const response = await api.getPublicInvoiceByShareId(normalizedShareId);
     const normalizedRecord = normalizeInvoiceRecord(
       {
         ...(response?.data || {}),
-        invoiceId: normalizedInvoiceId,
-        signedToken: normalizedToken,
+        shareId: normalizedShareId,
       },
-      normalizedInvoiceId
+      normalizedShareId
     );
 
     if (!normalizedRecord) {
@@ -290,42 +237,29 @@ async function fetchPublicInvoiceRecordByToken(invoiceId, signedToken) {
 }
 
 async function hydrateInvoiceRecord() {
-  const invoiceId = getInvoiceIdFromLocation();
-  const signedToken = getSignedTokenFromLocation();
-
-  if (invoiceId && signedToken) {
-    const publicInvoiceRecord = await fetchPublicInvoiceRecordByToken(invoiceId, signedToken);
-    if (publicInvoiceRecord) {
-      return {
-        invoiceRecord: publicInvoiceRecord,
-        missingMessage: "",
-      };
-    }
-
+  const shareId = getShareIdFromLocation();
+  if (!shareId) {
     return {
       invoiceRecord: null,
-      missingMessage: "Signed invoice link is invalid or expired. Request a new link from the store.",
+      missingMessage: "Invalid invoice link. Please request a new bill link.",
     };
   }
 
-  const payloadToken = getPayloadTokenFromLocation();
-  const payloadRecord = decodeInvoicePayloadToken(payloadToken) || {};
-  const localRecord = invoiceId ? getInvoiceRecordById(invoiceId) || {} : {};
+  const publicInvoiceRecord = await fetchPublicInvoiceRecordByShareId(shareId);
+  if (publicInvoiceRecord) {
+    return {
+      invoiceRecord: publicInvoiceRecord,
+      missingMessage: "",
+    };
+  }
 
-  const normalizedRecord = normalizeInvoiceRecord(
-    {
-      ...payloadRecord,
-      ...localRecord,
-      signedToken: String(localRecord.signedToken || signedToken || payloadRecord.signedToken || "").trim(),
-      sharePayload: String(localRecord.sharePayload || payloadToken || payloadRecord.sharePayload || "").trim(),
-    },
-    invoiceId || payloadRecord.invoiceId || localRecord.invoiceId || ""
-  );
+  const cachedRecord = findCachedInvoiceByShareId(shareId);
+  const normalizedRecord = normalizeInvoiceRecord(cachedRecord || {}, shareId);
 
   if (!normalizedRecord) {
     return {
       invoiceRecord: null,
-      missingMessage: "Invoice was not found. Please request a new bill link.",
+      missingMessage: "Invoice link is invalid, expired, or unavailable. Please request a new bill link.",
     };
   }
 
@@ -355,7 +289,7 @@ function renderInvoiceSummary(invoiceRecord) {
     return;
   }
 
-  elements.summary.innerHTML = "";
+  clearElementChildren(elements.summary);
 
   const createdAt = new Date(invoiceRecord.createdAt || Date.now());
   appendSummaryCard("Invoice", String(invoiceRecord.billNumber || invoiceRecord.invoiceId));
@@ -371,11 +305,14 @@ function renderInvoiceItems(invoiceRecord) {
     return;
   }
 
-  elements.itemsBody.innerHTML = "";
+  clearElementChildren(elements.itemsBody);
 
   if (!invoiceRecord.items.length) {
     const row = document.createElement("tr");
-    row.innerHTML = '<td colspan="4">No line items were found for this invoice.</td>';
+    const cell = document.createElement("td");
+    cell.colSpan = 4;
+    cell.textContent = "No line items were found for this invoice.";
+    row.appendChild(cell);
     elements.itemsBody.appendChild(row);
     return;
   }
@@ -421,7 +358,7 @@ function renderInvoiceTotals(invoiceRecord) {
     return;
   }
 
-  elements.totals.innerHTML = "";
+  clearElementChildren(elements.totals);
   appendTotalRow("Subtotal", formatCurrency(invoiceRecord.subtotal || 0));
   appendTotalRow("Tax", formatCurrency(invoiceRecord.tax || 0));
   appendTotalRow("Discount", formatCurrency(invoiceRecord.discount || 0));
@@ -497,7 +434,13 @@ function renderPhoneSuggestions() {
   }
 
   const phones = getSavedCustomerPhones();
-  elements.phoneSuggestions.innerHTML = phones.map((phone) => `<option value="${phone}"></option>`).join("");
+  clearElementChildren(elements.phoneSuggestions);
+
+  phones.forEach((phone) => {
+    const optionElement = document.createElement("option");
+    optionElement.value = String(phone || "").trim();
+    elements.phoneSuggestions.appendChild(optionElement);
+  });
 }
 
 function setInvoice(record, { missingMessage = "" } = {}) {
@@ -866,23 +809,24 @@ function handleWhatsappClick(event) {
 
   rememberCustomerPhone(normalizedPhone);
 
-  const payloadToken =
-    String(activeInvoice.sharePayload || "").trim() || createInvoicePayloadToken(activeInvoice);
-  const signedToken = String(activeInvoice.signedToken || "").trim();
+  const shareId = String(activeInvoice.shareId || "").trim();
+  const invoiceLink = String(activeInvoice.invoiceLink || "").trim() || buildInvoicePublicLink(shareId);
+  if (!invoiceLink) {
+    setStatus("Secure invoice link is unavailable. Request a new bill link.", "error");
+    return;
+  }
 
   let updatedInvoice = saveInvoiceRecord({
     ...activeInvoice,
     customerPhone: normalizedPhone,
-    sharePayload: payloadToken,
-    invoiceLink: buildInvoicePublicLink(activeInvoice.invoiceId, payloadToken, signedToken),
+    invoiceLink,
   });
 
   if (!updatedInvoice) {
     updatedInvoice = {
       ...activeInvoice,
       customerPhone: normalizedPhone,
-      sharePayload: payloadToken,
-      invoiceLink: buildInvoicePublicLink(activeInvoice.invoiceId, payloadToken, signedToken),
+      invoiceLink,
     };
   }
 

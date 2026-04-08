@@ -8,7 +8,8 @@ window.__APP_CONFIG__ = {
   SHOP_PHONE: "+91 90000 00000",
   SHOP_GSTIN: "22AAAAA0000A1Z5",
 
-  // Optional public invoice URL base. Example: "https://yourapp.com/bill"
+  // Optional public invoice URL base. shareId is appended as /:shareId (no query params).
+  // Example: "https://yourapp.com/bill"
   BILL_PUBLIC_BASE_URL: "",
 
   // Used when cashier enters 10-digit local number without country code.

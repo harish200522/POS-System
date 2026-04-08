@@ -14,7 +14,7 @@
       crossorigin
     />
     <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
     <link
@@ -23,7 +23,7 @@
     />
     <link
       rel="stylesheet"
-      href="./assets/styles.css?v=20260407-2"
+      href="./assets/styles.css?v=20260408-1"
     />
   </head>
   <body class="app-body min-h-screen bg-dune-100 text-slate-900">
@@ -37,7 +37,7 @@
             <p class="eyebrow">Retail Billing Suite</p>
             <h1 class="headline mt-2">CounterCraft POS</h1>
             <p class="app-tagline mt-2 max-w-2xl text-sm text-slate-600 md:text-base">
-              Run Your Shop Smarter with CounterCraft POS
+              Premium checkout workflows built for modern retail teams.
             </p>
           </div>
 
@@ -84,14 +84,14 @@
                   class="secondary-btn btn-inline"
                   type="button"
                 >
-                  Add Product
+                  Add SKU
                 </button>
                 <button
                   id="quick-sync"
                   class="secondary-btn btn-inline"
                   type="button"
                 >
-                  Sync Offline Sales
+                  Sync Sales
                 </button>
               </div>
 
@@ -204,9 +204,9 @@
             <article class="surface pos-products-panel p-4 md:p-5">
               <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h2 class="section-title">Product Lookup</h2>
+                  <h2 class="section-title">Smart Product Lookup</h2>
                   <p class="section-subtitle">
-                    Search by product name or barcode. Use camera scanner for fast checkout.
+                    Find products in seconds with name, barcode, or camera-assisted scan.
                   </p>
                 </div>
                 <div class="lookup-actions">
@@ -236,10 +236,25 @@
                 <button
                   id="scan-button"
                   type="button"
-                  class="action-btn"
+                  class="action-btn pos-scan-btn"
                 >
                   Scan Barcode
                 </button>
+              </div>
+
+              <div class="pos-insight-row mt-3">
+                <article class="pos-insight-card">
+                  <span>Fast Lookup</span>
+                  <strong>Barcode + Name</strong>
+                </article>
+                <article class="pos-insight-card">
+                  <span>Touch First</span>
+                  <strong>Built for 44px taps</strong>
+                </article>
+                <article class="pos-insight-card">
+                  <span>Live Billing</span>
+                  <strong>Totals update instantly</strong>
+                </article>
               </div>
 
               <div
@@ -254,7 +269,7 @@
             >
               <div class="flex items-start justify-between gap-2">
                 <div>
-                  <h2 class="section-title">Cart & Billing</h2>
+                  <h2 class="section-title">Smart Checkout</h2>
                   <p class="section-subtitle">Touch-first controls, fast totals, and guided checkout.</p>
                 </div>
                 <div class="button-group-inline">
@@ -379,10 +394,10 @@
 
                 <button
                   id="checkout-button"
-                  class="primary-btn mt-4"
+                  class="primary-btn checkout-cta-btn mt-4"
                   type="button"
                 >
-                  Complete Checkout
+                  Proceed to Payment
                 </button>
               </div>
             </article>
@@ -416,7 +431,7 @@
                 class="primary-btn btn-inline"
                 type="button"
               >
-                Checkout
+                Pay Now
               </button>
             </div>
           </div>
@@ -961,7 +976,7 @@
           Sign In to CounterCraft
         </h3>
         <p class="section-subtitle mt-1">
-          Login with your admin or cashier account. For first-time setup, use Create First Admin.
+          Login with your admin or cashier account. For first-time setup, fill shop details and use Create First Admin.
         </p>
 
         <form
@@ -989,6 +1004,57 @@
               required
             />
           </label>
+
+          <div class="rounded-2xl border border-dune-200 bg-dune-50 p-3">
+            <p class="text-xs font-semibold uppercase tracking-[0.11em] text-slate-600">New Shop Setup</p>
+            <p class="mt-1 text-xs text-slate-500">Required only when creating the first admin account.</p>
+
+            <div class="mt-3 grid gap-3 md:grid-cols-2">
+              <label class="text-sm font-medium text-slate-700">
+                Shop Name
+                <input
+                  id="auth-shop-name"
+                  type="text"
+                  autocomplete="organization"
+                  class="field-input mt-1"
+                  placeholder="e.g. Sunrise Mart"
+                />
+              </label>
+
+              <label class="text-sm font-medium text-slate-700">
+                Owner Name
+                <input
+                  id="auth-owner-name"
+                  type="text"
+                  autocomplete="name"
+                  class="field-input mt-1"
+                  placeholder="e.g. Aarav Sharma"
+                />
+              </label>
+
+              <label class="text-sm font-medium text-slate-700">
+                Phone Number
+                <input
+                  id="auth-phone"
+                  type="tel"
+                  autocomplete="tel"
+                  class="field-input mt-1"
+                  placeholder="e.g. +919876543210"
+                />
+              </label>
+
+              <label class="text-sm font-medium text-slate-700">
+                Email
+                <input
+                  id="auth-email"
+                  type="email"
+                  autocomplete="email"
+                  class="field-input mt-1"
+                  placeholder="e.g. owner@shop.com"
+                />
+              </label>
+            </div>
+          </div>
 
           <p
             id="auth-error"
@@ -1555,7 +1621,7 @@
     <script src="./app.config.js"></script>
     <script
       type="module"
-      src="./js/app.js?v=20260407-2"
+      src="./js/app.js?v=20260408-1"
     ></script>
   </body>
 </html>

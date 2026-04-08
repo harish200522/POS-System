@@ -7,6 +7,8 @@ import {
   getCurrentUser,
   listUsers,
   login,
+  logout,
+  register,
   resetUserPassword,
   updateUserStatus,
 } from "../controllers/authController.js";
@@ -26,19 +28,33 @@ const passwordValidator = body("password")
   .isLength({ min: 8, max: 128 })
   .withMessage("password must be 8-128 characters");
 
+const tenantRegistrationValidators = [
+  usernameValidator,
+  passwordValidator,
+  body("displayName").optional().trim().isLength({ max: 120 }),
+  body("name").trim().isLength({ min: 2, max: 160 }).withMessage("name must be 2-160 characters"),
+  body("ownerName")
+    .trim()
+    .isLength({ min: 2, max: 160 })
+    .withMessage("ownerName must be 2-160 characters"),
+  body("phone")
+    .trim()
+    .matches(/^\+?[1-9]\d{7,14}$/)
+    .withMessage("phone must be a valid international phone number"),
+  body("email").trim().isEmail().withMessage("email must be valid").normalizeEmail(),
+  validateRequest,
+];
+
 router.post(
   "/bootstrap-admin",
-  [
-    usernameValidator,
-    passwordValidator,
-    body("displayName").optional().trim().isLength({ max: 120 }),
-    body("shopId").optional().trim().isLength({ min: 2, max: 120 }),
-    validateRequest,
-  ],
+  tenantRegistrationValidators,
   bootstrapAdmin
 );
 
+router.post("/register", tenantRegistrationValidators, register);
+
 router.post("/login", [usernameValidator, passwordValidator, validateRequest], login);
+router.post("/logout", logout);
 router.get("/me", authenticate, getCurrentUser);
 router.patch(
   "/change-password",

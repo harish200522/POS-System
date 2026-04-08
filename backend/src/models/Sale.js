@@ -38,11 +38,16 @@ const saleItemSchema = new mongoose.Schema(
 
 const saleSchema = new mongoose.Schema(
   {
+    shopId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Shop",
+      required: true,
+      index: true,
+    },
     billNumber: {
       type: String,
       required: true,
-      unique: true,
-      index: true,
+      trim: true,
     },
     items: {
       type: [saleItemSchema],
@@ -108,7 +113,8 @@ const saleSchema = new mongoose.Schema(
   }
 );
 
-saleSchema.index({ createdAt: -1 });
+saleSchema.index({ shopId: 1, billNumber: 1 }, { unique: true });
+saleSchema.index({ shopId: 1, createdAt: -1 });
 
 const Sale = mongoose.model("Sale", saleSchema);
 

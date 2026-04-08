@@ -2,6 +2,12 @@ import mongoose from "mongoose";
 
 const productSchema = new mongoose.Schema(
   {
+    shopId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Shop",
+      required: true,
+      index: true,
+    },
     name: {
       type: String,
       required: true,
@@ -23,10 +29,8 @@ const productSchema = new mongoose.Schema(
     barcode: {
       type: String,
       required: true,
-      unique: true,
       trim: true,
       set: (value) => String(value ?? "").trim(),
-      index: true,
     },
     category: {
       type: String,
@@ -44,7 +48,8 @@ const productSchema = new mongoose.Schema(
   }
 );
 
-productSchema.index({ name: "text", barcode: "text" });
+productSchema.index({ shopId: 1, barcode: 1 }, { unique: true });
+productSchema.index({ shopId: 1, name: "text", barcode: "text" });
 
 const Product = mongoose.model("Product", productSchema);
 

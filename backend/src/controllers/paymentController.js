@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import mongoose from "mongoose";
 import Razorpay from "razorpay";
 import PaymentSettings from "../models/PaymentSettings.js";
 import Product from "../models/Product.js";
@@ -26,17 +27,17 @@ function parsePositiveNumber(value, label) {
   return numberValue;
 }
 
-function normalizeShopId(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]/g, "-")
-    .replace(/-{2,}/g, "-")
-    .replace(/^[-.]+|[-.]+$/g, "");
-}
-
 function getRequestShopId(req) {
-  return normalizeShopId(req?.auth?.shopId || env.defaultShopId) || "default-shop";
+  const rawShopId = String(req?.shopId || req?.auth?.shopId || "").trim();
+  if (!rawShopId) {
+    throw new ApiError(401, "Shop context is required");
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(rawShopId)) {
+    throw new ApiError(401, "Invalid shop context");
+  }
+
+  return new mongoose.Types.ObjectId(rawShopId);
 }
 
 function normalizeUpiId(value) {
@@ -72,7 +73,7 @@ function normalizeQrImage(value) {
 function toPaymentSettingsPayload(settingsDoc, shopId) {
   if (!settingsDoc) {
     return {
-      shopId,
+      shopId: String(shopId || ""),
       upiId: "",
       qrImage: "",
       configured: false,
@@ -82,7 +83,7 @@ function toPaymentSettingsPayload(settingsDoc, shopId) {
   }
 
   return {
-    shopId: settingsDoc.shopId,
+    shopId: String(settingsDoc.shopId || shopId),
     upiId: settingsDoc.upiId,
     qrImage: settingsDoc.qrImage || "",
     configured: Boolean(settingsDoc.upiId),
@@ -100,7 +101,7 @@ async function getUpiConfigurationForShop(shopId) {
   return {
     upiId: settings.upiId,
     qrImage: settings.qrImage || "",
-    shopName: shopId,
+    shopName: String(settings.shopId || shopId),
     currency: "INR",
   };
 }
@@ -217,7 +218,7 @@ export const upsertPaymentSettings = asyncHandler(async (req, res) => {
   });
 });
 
-async function buildBillingPreview(payload = {}) {
+async function buildBillingPreview(payload = {}, shopId) {
   const { items, tax = 0, discount = 0, cashier = "Default Cashier" } = payload;
 
   if (!Array.isArray(items) || items.length === 0) {
@@ -237,8 +238,8 @@ async function buildBillingPreview(payload = {}) {
     }
 
     const productQuery = item.productId
-      ? { _id: item.productId, isActive: true }
-      : { barcode: String(item.barcode || "").trim(), isActive: true };
+      ? { _id: item.productId, shopId, isActive: true }
+      : { shopId, barcode: String(item.barcode || "").trim(), isActive: true };
 
     const product = await Product.findOne(productQuery).select("_id name barcode price stock isActive");
 
@@ -271,6 +272,7 @@ async function buildBillingPreview(payload = {}) {
   }
 
   const billingPayload = {
+    shopId,
     items: resolvedItems.map((item) => ({
       productId: item.productId,
       barcode: item.barcode,
@@ -355,7 +357,7 @@ export const createUpiPaymentSession = asyncHandler(async (req, res) => {
   }
 
   const shopId = getRequestShopId(req);
-  const preview = await buildBillingPreview(req.body);
+  const preview = await buildBillingPreview(req.body, shopId);
   const upiConfig = await getUpiConfigurationForShop(shopId);
 
   const sessionId = `UPI-${Date.now()}-${Math.floor(Math.random() * 900000 + 100000)}`;
@@ -379,7 +381,7 @@ export const createUpiPaymentSession = asyncHandler(async (req, res) => {
     notes: {
       source: "countercraft-pos",
       sessionId,
-      shopId,
+      shopId: String(shopId),
       cashier: String(preview.summary.cashier || "Default Cashier"),
     },
   });
@@ -427,7 +429,7 @@ export const getUpiPaymentSessionStatus = asyncHandler(async (req, res) => {
 
   await syncSessionWithProvider(session);
 
-  const sale = session.completedSaleId ? await Sale.findById(session.completedSaleId) : null;
+  const sale = session.completedSaleId ? await Sale.findOne({ _id: session.completedSaleId, shopId }) : null;
 
   return res.status(200).json({
     success: true,
@@ -445,7 +447,7 @@ export const completeUpiPaymentSession = asyncHandler(async (req, res) => {
   }
 
   if (session.completedSaleId) {
-    const sale = await Sale.findById(session.completedSaleId);
+    const sale = await Sale.findOne({ _id: session.completedSaleId, shopId });
     return res.status(200).json({
       success: true,
       message: "Payment already completed",
@@ -468,7 +470,10 @@ export const completeUpiPaymentSession = asyncHandler(async (req, res) => {
   await session.save();
 
   try {
-    const sale = await processBillingPayload(session.billingPayload);
+    const sale = await processBillingPayload({
+      ...session.billingPayload,
+      shopId,
+    });
 
     session.status = "completed";
     session.completedSaleId = sale._id;
@@ -525,10 +530,45 @@ export const handleUpiWebhook = asyncHandler(async (req, res) => {
     return res.status(200).json({ success: true, message: "Event acknowledged" });
   }
 
-  const session = await UpiPaymentSession.findOne({ providerPaymentLinkId: paymentLinkEntity.id });
+  const webhookShopId = String(paymentLinkEntity?.notes?.shopId || "").trim();
+  const webhookSessionId = String(
+    paymentLinkEntity?.notes?.sessionId || paymentLinkEntity?.reference_id || ""
+  ).trim();
+
+  if (!mongoose.Types.ObjectId.isValid(webhookShopId)) {
+    return res.status(200).json({ success: true, message: "Webhook missing valid tenant metadata. Event ignored." });
+  }
+
+  const webhookShopObjectId = new mongoose.Types.ObjectId(webhookShopId);
+  const sessionQuery = {
+    providerPaymentLinkId: paymentLinkEntity.id,
+    shopId: webhookShopObjectId,
+  };
+
+  const session = await UpiPaymentSession.findOne(sessionQuery);
 
   if (!session) {
     return res.status(200).json({ success: true, message: "No matching session found" });
+  }
+
+  if (String(session.shopId || "") !== webhookShopId) {
+    return res.status(200).json({ success: true, message: "Tenant mismatch. Event ignored." });
+  }
+
+  if (webhookSessionId && webhookSessionId !== String(session.sessionId || "")) {
+    return res.status(200).json({ success: true, message: "Session metadata mismatch. Event ignored." });
+  }
+
+  const providerAmountPaise = Number(paymentLinkEntity?.amount);
+  const expectedAmountPaise = Math.round(Number(session.amount || 0) * 100);
+  if (Number.isFinite(providerAmountPaise) && providerAmountPaise !== expectedAmountPaise) {
+    return res.status(200).json({ success: true, message: "Amount mismatch. Event ignored." });
+  }
+
+  const providerCurrency = String(paymentLinkEntity?.currency || "").trim().toUpperCase();
+  const sessionCurrency = String(session.currency || "").trim().toUpperCase();
+  if (providerCurrency && sessionCurrency && providerCurrency !== sessionCurrency) {
+    return res.status(200).json({ success: true, message: "Currency mismatch. Event ignored." });
   }
 
   const mappedStatus = mapProviderStatus(paymentLinkEntity.status);
@@ -538,6 +578,7 @@ export const handleUpiWebhook = asyncHandler(async (req, res) => {
   if (mappedStatus === "paid") {
     if (session.status !== "completed") {
       session.status = "paid";
+      session.completionSource = "webhook";
       session.statusMessage = "Payment successful";
       if (!session.paidAt) {
         session.paidAt = new Date();

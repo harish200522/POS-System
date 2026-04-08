@@ -1,18 +1,139 @@
+import crypto from "crypto";
 import mongoose from "mongoose";
 import InventoryLog from "../models/InventoryLog.js";
+import InvoiceShare from "../models/InvoiceShare.js";
 import Product from "../models/Product.js";
 import Sale from "../models/Sale.js";
+import Shop from "../models/Shop.js";
+import { env } from "../config/env.js";
 import { getDateRange, roundCurrency } from "../utils/dateRange.js";
 import { ApiError, asyncHandler } from "../utils/errors.js";
-import { signInvoiceShareToken, verifyInvoiceShareToken } from "../utils/invoiceToken.js";
 
 export const PAYMENT_METHODS = ["cash", "upi"];
+const INVOICE_SHARE_ID_REGEX = /^[A-Za-z0-9_-]{24,128}$/;
+const INVOICE_SHARE_ID_BYTES = 24;
+const INVOICE_SHARE_GENERATION_ATTEMPTS = 10;
 
-function mapSaleToPublicInvoiceRecord(sale) {
+function generateOpaqueInvoiceShareId() {
+  return crypto.randomBytes(INVOICE_SHARE_ID_BYTES).toString("base64url");
+}
+
+function isDuplicateKeyError(error) {
+  return Number(error?.code) === 11000;
+}
+
+function isInvoiceShareExpired(invoiceShare) {
+  const expiresAtValue = invoiceShare?.expiresAt;
+  if (!expiresAtValue) {
+    return false;
+  }
+
+  const expiresAtDate = new Date(expiresAtValue);
+  if (Number.isNaN(expiresAtDate.getTime())) {
+    return false;
+  }
+
+  return expiresAtDate.getTime() <= Date.now();
+}
+
+function resolveInvoiceShareExpiryDate() {
+  const ttlSeconds = Number(env.invoiceShareLinkTtlSec);
+  if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) {
+    return null;
+  }
+
+  return new Date(Date.now() + ttlSeconds * 1000);
+}
+
+function buildPublicInvoicePath(shareId) {
+  return `/public/invoice/${encodeURIComponent(String(shareId || "").trim())}`;
+}
+
+async function createInvoiceShareRecord({ shopId, invoiceId, createdByUserId = null, expiresAt = null }) {
+  for (let attempt = 0; attempt < INVOICE_SHARE_GENERATION_ATTEMPTS; attempt += 1) {
+    const shareId = generateOpaqueInvoiceShareId();
+    if (!INVOICE_SHARE_ID_REGEX.test(shareId)) {
+      continue;
+    }
+
+    try {
+      const createdRecord = await InvoiceShare.create({
+        shopId,
+        invoiceId,
+        shareId,
+        expiresAt,
+        createdByUserId,
+      });
+
+      return createdRecord;
+    } catch (error) {
+      if (isDuplicateKeyError(error) && error?.keyPattern?.shareId) {
+        continue;
+      }
+
+      if (isDuplicateKeyError(error) && error?.keyPattern?.shopId && error?.keyPattern?.invoiceId) {
+        const existingRecord = await InvoiceShare.findOne({ shopId, invoiceId });
+        if (existingRecord) {
+          return existingRecord;
+        }
+      }
+
+      throw error;
+    }
+  }
+
+  throw new ApiError(500, "Unable to generate invoice share link. Please try again.");
+}
+
+async function rotateInvoiceShareRecord(invoiceShareRecord, { createdByUserId = null, expiresAt = null } = {}) {
+  for (let attempt = 0; attempt < INVOICE_SHARE_GENERATION_ATTEMPTS; attempt += 1) {
+    const shareId = generateOpaqueInvoiceShareId();
+    if (!INVOICE_SHARE_ID_REGEX.test(shareId)) {
+      continue;
+    }
+
+    invoiceShareRecord.shareId = shareId;
+    invoiceShareRecord.expiresAt = expiresAt;
+
+    if (createdByUserId && mongoose.Types.ObjectId.isValid(String(createdByUserId))) {
+      invoiceShareRecord.createdByUserId = createdByUserId;
+    }
+
+    try {
+      return await invoiceShareRecord.save();
+    } catch (error) {
+      if (isDuplicateKeyError(error) && error?.keyPattern?.shareId) {
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  throw new ApiError(500, "Unable to rotate expired invoice share link. Please try again.");
+}
+
+function mapInvoiceShareResponse(invoiceShareRecord, invoiceId) {
+  return {
+    invoiceId: String(invoiceId || "").trim(),
+    shareId: String(invoiceShareRecord?.shareId || "").trim(),
+    expiresAt: invoiceShareRecord?.expiresAt
+      ? new Date(invoiceShareRecord.expiresAt).toISOString()
+      : null,
+    publicPath: buildPublicInvoicePath(invoiceShareRecord?.shareId),
+  };
+}
+
+function mapSaleToPublicInvoiceRecord(sale, shop = null) {
   return {
     invoiceId: String(sale?._id || ""),
     billNumber: String(sale?.billNumber || ""),
     createdAt: sale?.createdAt ? new Date(sale.createdAt).toISOString() : new Date().toISOString(),
+    shop: {
+      name: String(shop?.name || ""),
+      phone: String(shop?.phone || ""),
+      email: String(shop?.email || ""),
+    },
     items: Array.isArray(sale?.items)
       ? sale.items.map((item) => ({
           name: String(item?.name || "Item"),
@@ -43,16 +164,96 @@ function parsePositiveNumber(value) {
   return numberValue;
 }
 
-function isTransactionUnsupportedError(error) {
-  const message = String(error?.message || "");
-  return /Transaction numbers are only allowed on a replica set member or mongos/i.test(message);
+function getRequestShopId(req) {
+  const shopId = String(req?.shopId || req?.auth?.shopId || "").trim();
+  if (!shopId) {
+    throw new ApiError(401, "Shop context is required");
+  }
+
+  return shopId;
 }
 
-async function generateBillNumber(session = null) {
+function toShopObjectId(shopId) {
+  if (!mongoose.Types.ObjectId.isValid(shopId)) {
+    throw new ApiError(401, "Invalid shop context");
+  }
+
+  return new mongoose.Types.ObjectId(shopId);
+}
+
+function isTransactionUnsupportedError(error) {
+  const errorCode = Number(error?.code);
+  const message = String(error?.message || "");
+
+  if ([20, 115, 251].includes(errorCode)) {
+    return true;
+  }
+
+  return /transaction numbers are only allowed|transactions are not supported|replica set member or mongos/i.test(
+    message
+  );
+}
+
+function buildRollbackStockOperations(shopId, stockAdjustments = []) {
+  if (!Array.isArray(stockAdjustments) || !stockAdjustments.length) {
+    return [];
+  }
+
+  const quantityByProduct = new Map();
+
+  stockAdjustments.forEach((entry) => {
+    const productId = String(entry?.productId || "").trim();
+    const quantity = Number(entry?.quantity);
+
+    if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
+      return;
+    }
+
+    quantityByProduct.set(productId, (quantityByProduct.get(productId) || 0) + quantity);
+  });
+
+  return Array.from(quantityByProduct.entries()).map(([productId, quantity]) => ({
+    updateOne: {
+      filter: { _id: productId, shopId },
+      update: { $inc: { stock: quantity } },
+    },
+  }));
+}
+
+async function rollbackNonTransactionalBilling({ shopId, saleId = null, stockAdjustments = [] }) {
+  const rollbackTasks = [];
+
+  if (saleId) {
+    rollbackTasks.push(
+      InventoryLog.deleteMany({ shopId, saleId }),
+      Sale.deleteOne({ _id: saleId, shopId })
+    );
+  }
+
+  const stockRollbackOperations = buildRollbackStockOperations(shopId, stockAdjustments);
+  if (stockRollbackOperations.length) {
+    rollbackTasks.push(Product.bulkWrite(stockRollbackOperations, { ordered: false }));
+  }
+
+  if (!rollbackTasks.length) {
+    return;
+  }
+
+  const rollbackResults = await Promise.allSettled(rollbackTasks);
+  const rollbackErrors = rollbackResults
+    .filter((result) => result.status === "rejected")
+    .map((result) => String(result.reason?.message || result.reason || "Unknown rollback error"));
+
+  if (rollbackErrors.length) {
+    throw new ApiError(500, `Billing rollback failed: ${rollbackErrors.join("; ")}`);
+  }
+}
+
+async function generateBillNumber(shopId, session = null) {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const billNumber = `BILL-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`;
     // Ensure bill numbers remain unique even under concurrent requests.
-    const existsQuery = Sale.exists({ billNumber });
+    const existsQuery = Sale.exists({ shopId, billNumber });
     const existing = session ? await existsQuery.session(session) : await existsQuery;
     if (!existing) {
       return billNumber;
@@ -63,6 +264,7 @@ async function generateBillNumber(session = null) {
 }
 
 async function performBillingOperation({
+  shopId,
   items,
   normalizedPaymentMethod,
   normalizedTax,
@@ -74,119 +276,141 @@ async function performBillingOperation({
 }) {
   const saleItems = [];
   const inventoryLogs = [];
+  const nonTransactionalStockAdjustments = [];
   let subtotal = 0;
+  let createdSaleId = null;
 
-  for (const item of items) {
-    const quantity = Number(item.quantity);
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      throw new ApiError(400, "Each item must have a quantity greater than zero");
+  try {
+    for (const item of items) {
+      const quantity = Number(item.quantity);
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        throw new ApiError(400, "Each item must have a quantity greater than zero");
+      }
+
+      const productQuery = item.productId
+        ? { _id: item.productId, shopId, isActive: true }
+        : { shopId, barcode: String(item.barcode || "").trim(), isActive: true };
+
+      const productLookup = Product.findOne(productQuery);
+      const product = session ? await productLookup.session(session) : await productLookup;
+
+      if (!product) {
+        throw new ApiError(404, `Product not found for item ${item.productId || item.barcode}`);
+      }
+
+      if (product.stock < quantity) {
+        throw new ApiError(400, `Insufficient stock for ${product.name}`);
+      }
+
+      const lineTotal = roundCurrency(product.price * quantity);
+      subtotal += lineTotal;
+
+      const previousStock = product.stock;
+      product.stock = product.stock - quantity;
+      if (session) {
+        await product.save({ session });
+      } else {
+        await product.save();
+        nonTransactionalStockAdjustments.push({
+          productId: product._id,
+          quantity,
+        });
+      }
+
+      saleItems.push({
+        productId: product._id,
+        name: product.name,
+        barcode: product.barcode,
+        unitPrice: product.price,
+        quantity,
+        lineTotal,
+      });
+
+      inventoryLogs.push({
+        shopId,
+        productId: product._id,
+        type: "sale",
+        quantity,
+        previousStock,
+        newStock: product.stock,
+        referenceType: "sale",
+        note: "Sold via POS billing",
+      });
     }
 
-    const productQuery = item.productId
-      ? { _id: item.productId, isActive: true }
-      : { barcode: String(item.barcode || "").trim(), isActive: true };
+    subtotal = roundCurrency(subtotal);
+    const total = roundCurrency(subtotal + normalizedTax - normalizedDiscount);
 
-    const productLookup = Product.findOne(productQuery);
-    const product = session ? await productLookup.session(session) : await productLookup;
-
-    if (!product) {
-      throw new ApiError(404, `Product not found for item ${item.productId || item.barcode}`);
+    if (total < 0) {
+      throw new ApiError(400, "Total cannot be negative");
     }
 
-    if (product.stock < quantity) {
-      throw new ApiError(400, `Insufficient stock for ${product.name}`);
+    let normalizedPaidAmount = parsePositiveNumber(paidAmount);
+    if (normalizedPaidAmount === null) {
+      normalizedPaidAmount = total;
     }
 
-    const lineTotal = roundCurrency(product.price * quantity);
-    subtotal += lineTotal;
+    if (normalizedPaymentMethod === "cash" && normalizedPaidAmount < total) {
+      throw new ApiError(400, "Paid amount cannot be less than total for cash payment");
+    }
 
-    const previousStock = product.stock;
-    product.stock = product.stock - quantity;
+    const changeDue =
+      normalizedPaymentMethod === "cash" ? roundCurrency(Math.max(normalizedPaidAmount - total, 0)) : 0;
+
+    const billNumber = await generateBillNumber(shopId, session);
+    const salePayload = {
+      shopId,
+      billNumber,
+      items: saleItems,
+      subtotal,
+      tax: normalizedTax,
+      discount: normalizedDiscount,
+      total,
+      paymentMethod: normalizedPaymentMethod,
+      paidAmount: normalizedPaidAmount,
+      changeDue,
+      cashier,
+      source: source === "offline_sync" ? "offline_sync" : "online",
+    };
+
+    let sale;
     if (session) {
-      await product.save({ session });
+      [sale] = await Sale.create([salePayload], { session });
+      await InventoryLog.insertMany(
+        inventoryLogs.map((entry) => ({
+          ...entry,
+          saleId: sale._id,
+        })),
+        { session }
+      );
     } else {
-      await product.save();
+      sale = await Sale.create(salePayload);
+      createdSaleId = sale._id;
+      await InventoryLog.insertMany(
+        inventoryLogs.map((entry) => ({
+          ...entry,
+          saleId: sale._id,
+        }))
+      );
     }
 
-    saleItems.push({
-      productId: product._id,
-      name: product.name,
-      barcode: product.barcode,
-      unitPrice: product.price,
-      quantity,
-      lineTotal,
-    });
+    return sale;
+  } catch (error) {
+    if (!session) {
+      await rollbackNonTransactionalBilling({
+        shopId,
+        saleId: createdSaleId,
+        stockAdjustments: nonTransactionalStockAdjustments,
+      });
+    }
 
-    inventoryLogs.push({
-      productId: product._id,
-      type: "sale",
-      quantity,
-      previousStock,
-      newStock: product.stock,
-      referenceType: "sale",
-      note: `Sold via POS billing`,
-    });
+    throw error;
   }
-
-  subtotal = roundCurrency(subtotal);
-  const total = roundCurrency(subtotal + normalizedTax - normalizedDiscount);
-
-  if (total < 0) {
-    throw new ApiError(400, "Total cannot be negative");
-  }
-
-  let normalizedPaidAmount = parsePositiveNumber(paidAmount);
-  if (normalizedPaidAmount === null) {
-    normalizedPaidAmount = total;
-  }
-
-  if (normalizedPaymentMethod === "cash" && normalizedPaidAmount < total) {
-    throw new ApiError(400, "Paid amount cannot be less than total for cash payment");
-  }
-
-  const changeDue =
-    normalizedPaymentMethod === "cash" ? roundCurrency(Math.max(normalizedPaidAmount - total, 0)) : 0;
-
-  const billNumber = await generateBillNumber(session);
-  const salePayload = {
-    billNumber,
-    items: saleItems,
-    subtotal,
-    tax: normalizedTax,
-    discount: normalizedDiscount,
-    total,
-    paymentMethod: normalizedPaymentMethod,
-    paidAmount: normalizedPaidAmount,
-    changeDue,
-    cashier,
-    source: source === "offline_sync" ? "offline_sync" : "online",
-  };
-
-  let sale;
-  if (session) {
-    [sale] = await Sale.create([salePayload], { session });
-    await InventoryLog.insertMany(
-      inventoryLogs.map((entry) => ({
-        ...entry,
-        saleId: sale._id,
-      })),
-      { session }
-    );
-  } else {
-    sale = await Sale.create(salePayload);
-    await InventoryLog.insertMany(
-      inventoryLogs.map((entry) => ({
-        ...entry,
-        saleId: sale._id,
-      }))
-    );
-  }
-
-  return sale;
 }
 
 export async function processBillingPayload(payload = {}) {
   const {
+    shopId,
     items,
     paymentMethod = "cash",
     paidAmount,
@@ -198,6 +422,11 @@ export async function processBillingPayload(payload = {}) {
 
   if (!Array.isArray(items) || items.length === 0) {
     throw new ApiError(400, "At least one item is required to process billing");
+  }
+
+  const normalizedShopId = String(shopId || "").trim();
+  if (!normalizedShopId) {
+    throw new ApiError(400, "shopId is required to process billing");
   }
 
   const normalizedPaymentMethod = String(paymentMethod || "").toLowerCase();
@@ -216,6 +445,7 @@ export async function processBillingPayload(payload = {}) {
   try {
     session.startTransaction();
     const sale = await performBillingOperation({
+      shopId: normalizedShopId,
       items,
       normalizedPaymentMethod,
       normalizedTax,
@@ -233,6 +463,7 @@ export async function processBillingPayload(payload = {}) {
 
     if (isTransactionUnsupportedError(error)) {
       const sale = await performBillingOperation({
+        shopId: normalizedShopId,
         items,
         normalizedPaymentMethod,
         normalizedTax,
@@ -253,7 +484,10 @@ export async function processBillingPayload(payload = {}) {
 }
 
 export const processBilling = asyncHandler(async (req, res) => {
-  const sale = await processBillingPayload(req.body);
+  const sale = await processBillingPayload({
+    ...req.body,
+    shopId: getRequestShopId(req),
+  });
 
   return res.status(201).json({
     success: true,
@@ -262,74 +496,86 @@ export const processBilling = asyncHandler(async (req, res) => {
   });
 });
 
-export const createInvoiceShareToken = asyncHandler(async (req, res) => {
+export const createInvoiceShareLink = asyncHandler(async (req, res) => {
+  const shopId = getRequestShopId(req);
   const invoiceId = String(req.params.invoiceId || "").trim();
   if (!mongoose.Types.ObjectId.isValid(invoiceId)) {
     throw new ApiError(400, "Invalid invoiceId");
   }
 
-  const sale = await Sale.findById(invoiceId).select("_id billNumber");
+  const sale = await Sale.findOne({ _id: invoiceId, shopId }).select("_id shopId");
   if (!sale) {
     throw new ApiError(404, "Invoice not found");
   }
 
-  const signedToken = signInvoiceShareToken({
-    invoiceId: String(sale._id),
-    billNumber: sale.billNumber,
+  const createdByUserId = req?.auth?.userId || null;
+  const expiresAt = resolveInvoiceShareExpiryDate();
+  let invoiceShareRecord = await InvoiceShare.findOne({
+    shopId,
+    invoiceId: sale._id,
   });
+
+  if (invoiceShareRecord) {
+    if (isInvoiceShareExpired(invoiceShareRecord)) {
+      invoiceShareRecord = await rotateInvoiceShareRecord(invoiceShareRecord, {
+        createdByUserId,
+        expiresAt,
+      });
+    }
+  } else {
+    invoiceShareRecord = await createInvoiceShareRecord({
+      shopId,
+      invoiceId: sale._id,
+      createdByUserId,
+      expiresAt,
+    });
+  }
 
   return res.status(200).json({
     success: true,
-    data: {
-      invoiceId: String(sale._id),
-      token: signedToken.token,
-      expiresAt: signedToken.expiresAt,
-    },
+    data: mapInvoiceShareResponse(invoiceShareRecord, sale._id),
   });
 });
 
-export const getPublicInvoice = asyncHandler(async (req, res) => {
-  const invoiceId = String(req.params.invoiceId || "").trim();
-  const token = String(req.query.token || "").trim();
-
-  if (!token) {
-    throw new ApiError(400, "token query parameter is required");
+export const getPublicInvoiceByShareId = asyncHandler(async (req, res) => {
+  const shareId = String(req.params.shareId || "").trim();
+  if (!INVOICE_SHARE_ID_REGEX.test(shareId)) {
+    throw new ApiError(400, "Invalid shareId");
   }
 
-  if (!mongoose.Types.ObjectId.isValid(invoiceId)) {
-    throw new ApiError(400, "Invalid invoiceId");
+  const invoiceShareRecord = await InvoiceShare.findOne({ shareId }).select("invoiceId shopId expiresAt");
+  if (!invoiceShareRecord) {
+    throw new ApiError(404, "Invoice link not found");
   }
 
-  let verifiedToken;
-  try {
-    verifiedToken = verifyInvoiceShareToken(token);
-  } catch (error) {
-    if (error?.code === "TOKEN_EXPIRED") {
-      throw new ApiError(401, "Invoice link expired. Request a new share link.");
-    }
-
-    throw new ApiError(401, "Invalid invoice link token");
+  if (isInvoiceShareExpired(invoiceShareRecord)) {
+    await InvoiceShare.deleteOne({ _id: invoiceShareRecord._id }).catch(() => {});
+    throw new ApiError(410, "Invoice link expired. Request a new share link.");
   }
 
-  if (verifiedToken.invoiceId !== invoiceId) {
-    throw new ApiError(403, "Invoice link token does not match requested invoice");
-  }
+  const [sale, shop] = await Promise.all([
+    Sale.findOne({
+      _id: invoiceShareRecord.invoiceId,
+      shopId: invoiceShareRecord.shopId,
+    }),
+    Shop.findOne({ _id: invoiceShareRecord.shopId }).select("name phone email"),
+  ]);
 
-  const sale = await Sale.findById(invoiceId);
   if (!sale) {
     throw new ApiError(404, "Invoice not found");
   }
 
   return res.status(200).json({
     success: true,
-    data: mapSaleToPublicInvoiceRecord(sale),
+    data: mapSaleToPublicInvoiceRecord(sale, shop),
   });
 });
 
 export const getSalesHistory = asyncHandler(async (req, res) => {
+  const shopId = getRequestShopId(req);
   const { from, to, paymentMethod, page = 1, limit = 50 } = req.query;
 
-  const query = {};
+  const query = { shopId };
 
   if (from || to) {
     query.createdAt = {};
@@ -367,12 +613,15 @@ export const getSalesHistory = asyncHandler(async (req, res) => {
 });
 
 export const getSalesSummary = asyncHandler(async (req, res) => {
+  const shopId = getRequestShopId(req);
+  const shopObjectId = toShopObjectId(shopId);
   const { range = "daily", startDate, endDate, lowStockThreshold = 5 } = req.query;
   const { start, end } = getDateRange({ range, startDate, endDate });
 
   const [summaryFacet] = await Sale.aggregate([
     {
       $match: {
+        shopId: shopObjectId,
         createdAt: {
           $gte: start,
           $lte: end,
@@ -438,6 +687,7 @@ export const getSalesSummary = asyncHandler(async (req, res) => {
   ]);
 
   const lowStockCount = await Product.countDocuments({
+    shopId,
     isActive: true,
     stock: { $lte: Number(lowStockThreshold) || 5 },
   });

@@ -1,11 +1,30 @@
+import mongoose from "mongoose";
 import InventoryLog from "../models/InventoryLog.js";
 import Product from "../models/Product.js";
-import { asyncHandler } from "../utils/errors.js";
+import { ApiError, asyncHandler } from "../utils/errors.js";
+
+function getRequestShopId(req) {
+  const shopId = String(req?.shopId || req?.auth?.shopId || "").trim();
+  if (!shopId) {
+    throw new ApiError(401, "Shop context is required");
+  }
+
+  return shopId;
+}
+
+function toShopObjectId(shopId) {
+  if (!mongoose.Types.ObjectId.isValid(shopId)) {
+    throw new ApiError(401, "Invalid shop context");
+  }
+
+  return new mongoose.Types.ObjectId(shopId);
+}
 
 export const getInventoryLogs = asyncHandler(async (req, res) => {
+  const shopId = getRequestShopId(req);
   const { productId, type, page = 1, limit = 50 } = req.query;
 
-  const query = {};
+  const query = { shopId };
 
   if (productId) {
     query.productId = productId;
@@ -41,9 +60,11 @@ export const getInventoryLogs = asyncHandler(async (req, res) => {
 });
 
 export const getLowStockProducts = asyncHandler(async (req, res) => {
+  const shopId = getRequestShopId(req);
   const threshold = Math.max(Number(req.query.threshold) || 5, 0);
 
   const lowStockProducts = await Product.find({
+    shopId,
     isActive: true,
     stock: { $lte: threshold },
   })
@@ -61,10 +82,12 @@ export const getLowStockProducts = asyncHandler(async (req, res) => {
 });
 
 export const getInventoryOverview = asyncHandler(async (req, res) => {
+  const shopId = getRequestShopId(req);
+  const shopObjectId = toShopObjectId(shopId);
   const threshold = Math.max(Number(req.query.threshold) || 5, 0);
 
   const [aggregate] = await Product.aggregate([
-    { $match: { isActive: true } },
+    { $match: { shopId: shopObjectId, isActive: true } },
     {
       $group: {
         _id: null,
@@ -83,6 +106,7 @@ export const getInventoryOverview = asyncHandler(async (req, res) => {
   ]);
 
   const lowStockProducts = await Product.find({
+    shopId,
     isActive: true,
     stock: { $lte: threshold },
   })

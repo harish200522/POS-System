@@ -1,6 +1,10 @@
 import { API_BASE_URL } from "../config.js";
 
-let accessToken = localStorage.getItem("pos_access_token") || "";
+try {
+  window.localStorage.removeItem("pos_access_token");
+} catch (error) {
+  // Ignore storage access issues (for example, privacy mode restrictions).
+}
 
 function buildUrl(path, query) {
   const url = new URL(`${API_BASE_URL}${path}`);
@@ -22,16 +26,13 @@ async function request(path, { method = "GET", body, query } = {}) {
     "Content-Type": "application/json",
   };
 
-  if (accessToken) {
-    headers.Authorization = `Bearer ${accessToken}`;
-  }
-
   let response;
   try {
     response = await fetch(endpoint, {
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,
+      credentials: "include",
     });
   } catch (error) {
     const networkError = new Error("Unable to reach server. Working in offline mode.");
@@ -50,9 +51,9 @@ async function request(path, { method = "GET", body, query } = {}) {
     if (
       response.status === 401 &&
       !path.startsWith("/auth/login") &&
-      !path.startsWith("/auth/bootstrap-admin")
+      !path.startsWith("/auth/bootstrap-admin") &&
+      !path.startsWith("/auth/register")
     ) {
-      setAccessToken("");
       window.dispatchEvent(new CustomEvent("pos:unauthorized"));
     }
 
@@ -65,23 +66,11 @@ async function request(path, { method = "GET", body, query } = {}) {
   return payload;
 }
 
-export function setAccessToken(token) {
-  accessToken = String(token || "").trim();
-
-  if (accessToken) {
-    localStorage.setItem("pos_access_token", accessToken);
-  } else {
-    localStorage.removeItem("pos_access_token");
-  }
-}
-
-export function getAccessToken() {
-  return accessToken;
-}
-
 export const api = {
   bootstrapAdmin: (body) => request("/auth/bootstrap-admin", { method: "POST", body }),
+  register: (body) => request("/auth/register", { method: "POST", body }),
   login: (body) => request("/auth/login", { method: "POST", body }),
+  logout: () => request("/auth/logout", { method: "POST" }),
   getCurrentUser: () => request("/auth/me"),
   getUsers: () => request("/auth/users"),
   createUser: (body) => request("/auth/users", { method: "POST", body }),
@@ -101,14 +90,10 @@ export const api = {
   deleteProduct: (id) => request(`/products/${id}`, { method: "DELETE" }),
   updateStock: (id, body) => request(`/products/${id}/stock`, { method: "PATCH", body }),
   processBilling: (body) => request("/billing/process", { method: "POST", body }),
-  getInvoiceShareToken: (invoiceId) =>
-    request(`/billing/invoices/${encodeURIComponent(invoiceId)}/share-token`),
-  getPublicInvoiceByToken: (invoiceId, token) =>
-    request(`/billing/public/${encodeURIComponent(invoiceId)}`, {
-      query: {
-        token,
-      },
-    }),
+  getInvoiceShareLink: (invoiceId) =>
+    request(`/billing/invoices/${encodeURIComponent(invoiceId)}/share-link`),
+  getPublicInvoiceByShareId: (shareId) =>
+    request(`/public/invoice/${encodeURIComponent(shareId)}`),
   createUpiSession: (body) => request("/payments/upi/session", { method: "POST", body }),
   getUpiSessionStatus: (sessionId) =>
     request(`/payments/upi/session/${encodeURIComponent(sessionId)}/status`),

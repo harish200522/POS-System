@@ -7,7 +7,8 @@ window.__APP_CONFIG__ = {
   SHOP_PHONE: "+91 90000 00000",
   SHOP_GSTIN: "",
 
-  // Optional: set this to your production public invoice URL prefix (e.g. https://yourapp.com/bill)
+  // Optional: set this to your production public invoice URL prefix.
+  // shareId is appended as /:shareId (example: https://yourapp.com/bill)
   BILL_PUBLIC_BASE_URL: "",
   WHATSAPP_DEFAULT_COUNTRY_CODE: "91",
 };

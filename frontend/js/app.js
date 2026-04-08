@@ -1,4 +1,4 @@
-import { api, getAccessToken, setAccessToken } from "./services/api.js";
+import { api } from "./services/api.js";
 import { createBarcodeScanner } from "./services/scanner.js";
 import {
   getCachedProducts,
@@ -197,6 +197,10 @@ const elements = {
   authForm: document.getElementById("auth-form"),
   authUsername: document.getElementById("auth-username"),
   authPassword: document.getElementById("auth-password"),
+  authShopName: document.getElementById("auth-shop-name"),
+  authOwnerName: document.getElementById("auth-owner-name"),
+  authPhone: document.getElementById("auth-phone"),
+  authEmail: document.getElementById("auth-email"),
   authError: document.getElementById("auth-error"),
   authLoginButton: document.getElementById("auth-login-button"),
   authBootstrapButton: document.getElementById("auth-bootstrap-button"),
@@ -340,6 +344,59 @@ function asNumber(value, fallback = 0) {
   return Number.isFinite(numericValue) ? numericValue : fallback;
 }
 
+function clearElementChildren(element) {
+  if (!element) {
+    return;
+  }
+
+  while (element.firstChild) {
+    element.removeChild(element.firstChild);
+  }
+}
+
+function createTextElement(tagName, text, className = "") {
+  const element = document.createElement(tagName);
+
+  if (className) {
+    element.className = className;
+  }
+
+  element.textContent = String(text ?? "");
+  return element;
+}
+
+function sanitizeUrl(value, { fallback = "#", allowProtocols = ["http:", "https:"] } = {}) {
+  const rawValue = String(value || "").trim();
+  if (!rawValue) {
+    return fallback;
+  }
+
+  try {
+    const parsedUrl = new URL(rawValue, window.location.href);
+    if (allowProtocols.includes(parsedUrl.protocol)) {
+      return parsedUrl.toString();
+    }
+  } catch (error) {
+    return fallback;
+  }
+
+  return fallback;
+}
+
+function sanitizeHttpUrl(value, fallback = "#") {
+  return sanitizeUrl(value, {
+    fallback,
+    allowProtocols: ["http:", "https:"],
+  });
+}
+
+function sanitizeActionUrl(value, fallback = "#") {
+  return sanitizeUrl(value, {
+    fallback,
+    allowProtocols: ["http:", "https:", "upi:"],
+  });
+}
+
 function isMobileViewport() {
   return window.matchMedia("(max-width: 768px)").matches;
 }
@@ -393,13 +450,13 @@ function setCheckoutButtonBusy(isBusy, label = "") {
   }
 
   if (!elements.checkoutButton.dataset.idleLabel) {
-    elements.checkoutButton.dataset.idleLabel = elements.checkoutButton.textContent || "Complete Checkout";
+    elements.checkoutButton.dataset.idleLabel = elements.checkoutButton.textContent || "Proceed to Payment";
   }
 
   elements.checkoutButton.disabled = Boolean(isBusy);
   elements.checkoutButton.textContent = isBusy
     ? label || "Processing..."
-    : elements.checkoutButton.dataset.idleLabel || "Complete Checkout";
+    : elements.checkoutButton.dataset.idleLabel || "Proceed to Payment";
 }
 
 function updateCheckoutRuntimeStatus() {
@@ -409,6 +466,7 @@ function updateCheckoutRuntimeStatus() {
 
   let nextClass = "runtime-pill-ready";
   let nextLabel = "Ready to bill";
+  const cartItemCount = state.cart.reduce((count, item) => count + Math.max(asNumber(item?.quantity), 0), 0);
 
   if (!navigator.onLine) {
     nextClass = "runtime-pill-offline";
@@ -421,7 +479,8 @@ function updateCheckoutRuntimeStatus() {
     } else if (!state.cart.length) {
       nextLabel = "Awaiting cart items";
     } else {
-      nextLabel = "Ready to checkout";
+      const paymentLabel = state.paymentMethod === "upi" ? "UPI" : "Cash";
+      nextLabel = `${formatNumber(cartItemCount)} item${cartItemCount === 1 ? "" : "s"} • ${paymentLabel} ready`;
     }
   }
 
@@ -455,42 +514,19 @@ function buildInvoiceIdFromSale(sale) {
   return `INV-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`;
 }
 
-function buildInvoicePublicLink(invoiceId) {
-  const payloadToken = arguments.length > 1 ? String(arguments[1] || "").trim() : "";
-  const signedToken = arguments.length > 2 ? String(arguments[2] || "").trim() : "";
+function buildInvoicePublicLink(shareId) {
   const configuredBase = getRuntimeConfigValue("BILL_PUBLIC_BASE_URL").replace(/\/$/, "");
-  const normalizedInvoiceId = String(invoiceId || "").trim();
-  const encodedId = encodeURIComponent(normalizedInvoiceId);
-
-  if (configuredBase) {
-    const shareUrl = `${configuredBase}/${encodedId}`;
-    const queryParams = new URLSearchParams();
-    if (signedToken) {
-      queryParams.set("t", signedToken);
-    } else if (payloadToken) {
-      queryParams.set("p", payloadToken);
-    }
-
-    if (!queryParams.toString()) {
-      return shareUrl;
-    }
-
-    const separator = shareUrl.includes("?") ? "&" : "?";
-    return `${shareUrl}${separator}${queryParams.toString()}`;
+  const normalizedShareId = String(shareId || "").trim();
+  if (!normalizedShareId) {
+    return "";
   }
 
-  const params = new URLSearchParams({
-    i: normalizedInvoiceId,
-  });
-
-  if (signedToken) {
-    params.set("t", signedToken);
-  } else if (payloadToken) {
-    params.set("p", payloadToken);
+  if (configuredBase) {
+    return `${configuredBase}/${encodeURIComponent(normalizedShareId)}`;
   }
 
   const localBillUrl = new URL("./bill.html", window.location.href);
-  localBillUrl.search = params.toString();
+  localBillUrl.hash = `share/${encodeURIComponent(normalizedShareId)}`;
   return localBillUrl.toString();
 }
 
@@ -505,29 +541,6 @@ function normalizeInvoiceItems(items = []) {
     unitPrice: Math.max(asNumber(item?.unitPrice), 0),
     lineTotal: Math.max(asNumber(item?.lineTotal), 0),
   }));
-}
-
-function createInvoicePayloadToken(invoiceRecord = {}) {
-  const payload = {
-    invoiceId: String(invoiceRecord.invoiceId || ""),
-    billNumber: String(invoiceRecord.billNumber || ""),
-    createdAt: String(invoiceRecord.createdAt || ""),
-    shop: invoiceRecord.shop || {},
-    items: normalizeInvoiceItems(invoiceRecord.items || []).slice(0, 250),
-    subtotal: Math.max(asNumber(invoiceRecord.subtotal), 0),
-    tax: Math.max(asNumber(invoiceRecord.tax), 0),
-    discount: Math.max(asNumber(invoiceRecord.discount), 0),
-    total: Math.max(asNumber(invoiceRecord.total), 0),
-    paymentMethod: String(invoiceRecord.paymentMethod || "cash"),
-    paidAmount: Math.max(asNumber(invoiceRecord.paidAmount), 0),
-    changeDue: Math.max(asNumber(invoiceRecord.changeDue), 0),
-    cashier: String(invoiceRecord.cashier || "Default Cashier"),
-  };
-
-  const jsonPayload = JSON.stringify(payload);
-  const utf8Payload = unescape(encodeURIComponent(jsonPayload));
-  const base64Payload = btoa(utf8Payload);
-  return base64Payload.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 function createInvoiceRecordFromSale(sale = {}, { isOffline = false } = {}) {
@@ -552,15 +565,13 @@ function createInvoiceRecordFromSale(sale = {}, { isOffline = false } = {}) {
     source: String(sale.source || (isOffline ? "offline" : "online")),
     isOffline,
     customerPhone: "",
-    signedToken: "",
-    signedTokenExpiresAt: "",
+    shareId: "",
+    shareIdExpiresAt: "",
     sentViaWhatsapp: false,
     sentAt: "",
   };
 
-  const payloadToken = createInvoicePayloadToken(invoiceRecord);
-  invoiceRecord.sharePayload = payloadToken;
-  invoiceRecord.invoiceLink = buildInvoicePublicLink(invoiceId, payloadToken, "");
+  invoiceRecord.invoiceLink = buildInvoicePublicLink(invoiceRecord.shareId);
 
   return invoiceRecord;
 }
@@ -570,20 +581,16 @@ function isMongoObjectId(value) {
 }
 
 function buildInvoiceLinkFromRecord(invoiceRecord = {}) {
-  return buildInvoicePublicLink(
-    invoiceRecord.invoiceId,
-    String(invoiceRecord.sharePayload || "").trim(),
-    String(invoiceRecord.signedToken || "").trim()
-  );
+  return buildInvoicePublicLink(String(invoiceRecord.shareId || "").trim());
 }
 
-async function ensureBackendSignedInvoiceLink(invoiceRecord, { forceRefresh = false } = {}) {
+async function ensureBackendInvoiceShareLink(invoiceRecord, { forceRefresh = false } = {}) {
   if (!invoiceRecord?.invoiceId || !navigator.onLine || !isMongoObjectId(invoiceRecord.invoiceId)) {
     return invoiceRecord;
   }
 
-  const existingToken = String(invoiceRecord.signedToken || "").trim();
-  if (existingToken && !forceRefresh) {
+  const existingShareId = String(invoiceRecord.shareId || "").trim();
+  if (existingShareId && !forceRefresh) {
     if (String(invoiceRecord.invoiceLink || "").trim()) {
       return invoiceRecord;
     }
@@ -595,22 +602,18 @@ async function ensureBackendSignedInvoiceLink(invoiceRecord, { forceRefresh = fa
   }
 
   try {
-    const response = await api.getInvoiceShareToken(invoiceRecord.invoiceId);
-    const signedToken = String(response?.data?.token || "").trim();
+    const response = await api.getInvoiceShareLink(invoiceRecord.invoiceId);
+    const shareId = String(response?.data?.shareId || "").trim();
 
-    if (!signedToken) {
+    if (!shareId) {
       return invoiceRecord;
     }
 
     const securedInvoice = {
       ...invoiceRecord,
-      signedToken,
-      signedTokenExpiresAt: String(response?.data?.expiresAt || "").trim(),
-      invoiceLink: buildInvoicePublicLink(
-        invoiceRecord.invoiceId,
-        String(invoiceRecord.sharePayload || "").trim(),
-        signedToken
-      ),
+      shareId,
+      shareIdExpiresAt: String(response?.data?.expiresAt || "").trim(),
+      invoiceLink: buildInvoicePublicLink(shareId),
     };
 
     const persistedInvoice = saveInvoiceRecord(securedInvoice) || securedInvoice;
@@ -640,9 +643,13 @@ function renderBillPhoneSuggestions() {
   }
 
   const phoneOptions = getSavedCustomerPhones();
-  elements.billPhoneSuggestions.innerHTML = phoneOptions
-    .map((phone) => `<option value="${phone}"></option>`)
-    .join("");
+  clearElementChildren(elements.billPhoneSuggestions);
+
+  phoneOptions.forEach((phone) => {
+    const optionElement = document.createElement("option");
+    optionElement.value = String(phone || "").trim();
+    elements.billPhoneSuggestions.appendChild(optionElement);
+  });
 }
 
 function normalizeCustomerPhone(value) {
@@ -677,13 +684,9 @@ function resolveWhatsappPhoneNumber(value) {
 
 function setBillActionContext(invoiceRecord) {
   if (invoiceRecord?.invoiceId && !String(invoiceRecord.invoiceLink || "").trim()) {
-    const signedToken = String(invoiceRecord.signedToken || "").trim();
-    const sharePayload =
-      String(invoiceRecord.sharePayload || "").trim() || createInvoicePayloadToken(invoiceRecord);
     invoiceRecord = {
       ...invoiceRecord,
-      sharePayload,
-      invoiceLink: buildInvoicePublicLink(invoiceRecord.invoiceId, sharePayload, signedToken),
+      invoiceLink: buildInvoicePublicLink(String(invoiceRecord.shareId || "").trim()),
     };
   }
 
@@ -692,7 +695,7 @@ function setBillActionContext(invoiceRecord) {
   if (elements.billShareLink) {
     const invoiceLink = String(invoiceRecord?.invoiceLink || "").trim();
     elements.billShareLink.textContent = invoiceLink || "Link unavailable";
-    elements.billShareLink.href = invoiceLink || "#";
+    elements.billShareLink.href = sanitizeHttpUrl(invoiceLink, "#");
   }
 
   if (elements.billCustomerPhoneInput) {
@@ -1529,27 +1532,29 @@ async function handleBillWhatsappShare() {
   let workingInvoice = state.activeInvoice;
   if (navigator.onLine) {
     setBillSendStatus("Securing share link...", "pending");
-    workingInvoice = await ensureBackendSignedInvoiceLink(workingInvoice);
+    workingInvoice = await ensureBackendInvoiceShareLink(workingInvoice);
   }
 
-  const sharePayload =
-    String(workingInvoice?.sharePayload || "").trim() || createInvoicePayloadToken(workingInvoice);
+  const shareId = String(workingInvoice?.shareId || "").trim();
+  const invoiceLink = buildInvoicePublicLink(shareId);
 
-  const signedToken = String(workingInvoice?.signedToken || "").trim();
+  if (!invoiceLink) {
+    setBillSendStatus("Secure link unavailable. Try again when online.", "warning");
+    showToast("Secure invoice link is not available yet", "warning");
+    return;
+  }
 
   let invoiceRecord = saveInvoiceRecord({
     ...workingInvoice,
     customerPhone: normalizedPhone,
-    sharePayload,
-    invoiceLink: buildInvoicePublicLink(workingInvoice.invoiceId, sharePayload, signedToken),
+    invoiceLink,
   });
 
   if (!invoiceRecord) {
     invoiceRecord = {
       ...workingInvoice,
       customerPhone: normalizedPhone,
-      sharePayload,
-      invoiceLink: buildInvoicePublicLink(workingInvoice.invoiceId, sharePayload, signedToken),
+      invoiceLink,
     };
   }
 
@@ -1638,10 +1643,79 @@ function setAuthError(message = "") {
   elements.authError.classList.toggle("hidden", !text);
 }
 
-function setAuthLoadingState(isLoading) {
+function setAuthLoadingState(isLoading, mode = "login") {
   elements.authLoginButton.disabled = isLoading;
   elements.authBootstrapButton.disabled = isLoading;
-  elements.authLoginButton.textContent = isLoading ? "Signing in..." : "Login";
+  elements.authLoginButton.textContent = isLoading && mode === "login" ? "Signing in..." : "Login";
+  elements.authBootstrapButton.textContent =
+    isLoading && mode === "bootstrap" ? "Creating account..." : "Create First Admin";
+}
+
+function formatAuthValidationError(error, fallbackMessage = "Authentication failed") {
+  const details = Array.isArray(error?.details) ? error.details : [];
+  if (!details.length) {
+    return String(error?.message || fallbackMessage);
+  }
+
+  const fieldLabels = {
+    username: "Username",
+    password: "Password",
+    displayName: "Display name",
+    name: "Shop name",
+    ownerName: "Owner name",
+    phone: "Phone number",
+    email: "Email",
+  };
+
+  const fieldMessages = details
+    .map((entry) => {
+      const field = String(entry?.field || "").trim();
+      const label = fieldLabels[field] || field || "Field";
+      const message = String(entry?.message || "Invalid value").trim();
+      return `${label}: ${message}`;
+    })
+    .filter(Boolean);
+
+  if (!fieldMessages.length) {
+    return String(error?.message || fallbackMessage);
+  }
+
+  return fieldMessages.join(" | ");
+}
+
+function buildOnboardingRegistrationPayload() {
+  const username = String(elements.authUsername?.value || "").trim();
+  const password = String(elements.authPassword?.value || "");
+  const name = String(elements.authShopName?.value || "").trim();
+  const ownerName = String(elements.authOwnerName?.value || "").trim();
+  const phone = String(elements.authPhone?.value || "").trim();
+  const email = String(elements.authEmail?.value || "").trim().toLowerCase();
+
+  return {
+    username,
+    password,
+    displayName: ownerName || username,
+    name,
+    ownerName,
+    phone,
+    email,
+  };
+}
+
+function getOnboardingValidationMessage(payload = {}) {
+  if (!payload.name || !payload.ownerName || !payload.phone || !payload.email) {
+    return "Shop name, owner name, phone number, and email are required for first-time setup.";
+  }
+
+  if (!/^\+?[1-9]\d{7,14}$/.test(payload.phone)) {
+    return "Enter a valid international phone number (example: +919876543210).";
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) {
+    return "Enter a valid email address.";
+  }
+
+  return "";
 }
 
 function openAuthModal(message = "") {
@@ -1915,6 +1989,12 @@ async function logoutUser(message = "Logged out") {
     closeUpiModal();
   }
 
+  try {
+    await api.logout();
+  } catch (error) {
+    // Keep local logout behavior even when network/logout API fails.
+  }
+
   state.authUser = null;
   state.authReady = false;
   state.paymentSettingsLoaded = false;
@@ -1925,7 +2005,6 @@ async function logoutUser(message = "Logged out") {
     configured: false,
   };
   paymentQrMarkedForRemoval = false;
-  setAccessToken("");
   updateAuthBadge();
   applyRoleAccess();
   setAppLocked(true);
@@ -1933,50 +2012,65 @@ async function logoutUser(message = "Logged out") {
 }
 
 async function restoreSession() {
-  if (!getAccessToken()) {
-    return false;
-  }
-
   try {
     const response = await api.getCurrentUser();
     applyAuthenticatedUser(response.data);
     return true;
   } catch (error) {
-    setAccessToken("");
     return false;
   }
 }
 
 async function authenticateWithCredentials({ bootstrap = false } = {}) {
-  const username = elements.authUsername.value.trim();
-  const password = elements.authPassword.value;
+  const username = String(elements.authUsername?.value || "").trim();
+  const password = String(elements.authPassword?.value || "");
 
   if (!username || !password) {
     setAuthError("Username and password are required.");
     return false;
   }
 
-  setAuthLoadingState(true);
+  const onboardingPayload = buildOnboardingRegistrationPayload();
+  if (bootstrap) {
+    const onboardingValidationMessage = getOnboardingValidationMessage(onboardingPayload);
+    if (onboardingValidationMessage) {
+      setAuthError(onboardingValidationMessage);
+      return false;
+    }
+  }
+
+  setAuthLoadingState(true, bootstrap ? "bootstrap" : "login");
   setAuthError("");
 
   try {
-    const response = bootstrap
-      ? await api.bootstrapAdmin({ username, password, displayName: username })
-      : await api.login({ username, password });
+    let response;
 
-    const token = response.data?.token;
+    if (bootstrap) {
+      try {
+        response = await api.register(onboardingPayload);
+      } catch (error) {
+        // Backward compatibility with older deployments that only expose bootstrap-admin.
+        if (Number(error?.status) === 404 || Number(error?.status) === 405) {
+          response = await api.bootstrapAdmin(onboardingPayload);
+        } else {
+          throw error;
+        }
+      }
+    } else {
+      response = await api.login({ username, password });
+    }
+
     const user = response.data?.user;
-    if (!token || !user) {
+    if (!user) {
       throw new Error("Invalid authentication response");
     }
 
-    setAccessToken(token);
     applyAuthenticatedUser(user);
     await loadInitialData();
     showToast(bootstrap ? "Admin account created and logged in" : "Login successful", "success");
     return true;
   } catch (error) {
-    setAuthError(error.message || "Authentication failed");
+    setAuthError(formatAuthValidationError(error, "Authentication failed"));
     return false;
   } finally {
     setAuthLoadingState(false);
@@ -2143,7 +2237,7 @@ function renderUpiQrCode(upiPaymentLink, qrImage = "") {
   const uploadedQrImage = String(qrImage || "").trim();
   if (uploadedQrImage) {
     state.upiQrRenderToken += 1;
-    elements.upiQrRoot.innerHTML = "";
+    clearElementChildren(elements.upiQrRoot);
 
     const imageElement = document.createElement("img");
     imageElement.src = uploadedQrImage;
@@ -2153,9 +2247,10 @@ function renderUpiQrCode(upiPaymentLink, qrImage = "") {
   }
 
   const renderToken = (state.upiQrRenderToken += 1);
-  elements.upiQrRoot.innerHTML = "";
-  elements.upiQrRoot.innerHTML =
-    '<p class="text-xs text-slate-500 text-center">Loading QR code...</p>';
+  clearElementChildren(elements.upiQrRoot);
+  elements.upiQrRoot.appendChild(
+    createTextElement("p", "Loading QR code...", "text-xs text-slate-500 text-center")
+  );
 
   void ensureQRCodeLoaded().then((QRCode) => {
     if (renderToken !== state.upiQrRenderToken) {
@@ -2163,12 +2258,18 @@ function renderUpiQrCode(upiPaymentLink, qrImage = "") {
     }
 
     if (!QRCode) {
-      elements.upiQrRoot.innerHTML =
-        '<p class="text-xs text-slate-500 text-center">QR generator unavailable. Use Open UPI App.</p>';
+      clearElementChildren(elements.upiQrRoot);
+      elements.upiQrRoot.appendChild(
+        createTextElement(
+          "p",
+          "QR generator unavailable. Use Open UPI App.",
+          "text-xs text-slate-500 text-center"
+        )
+      );
       return;
     }
 
-    elements.upiQrRoot.innerHTML = "";
+    clearElementChildren(elements.upiQrRoot);
     upiQrCodeInstance = new QRCode(elements.upiQrRoot, {
       text: upiPaymentLink,
       width: 220,
@@ -2189,7 +2290,7 @@ function refreshUpiModalContentFromSession(sessionData) {
   elements.upiAmountValue.textContent = formatCurrency(sessionData.amount || 0);
   elements.upiShopName.textContent = sessionData.shopName || UPI_CONFIG.defaultShopName;
   elements.upiIdValue.textContent = sessionData.upiId || "-";
-  elements.upiOpenAppLink.href = sessionData.upiLink || fallbackLink;
+  elements.upiOpenAppLink.href = sanitizeActionUrl(sessionData.upiLink || fallbackLink, "#");
   renderUpiQrCode(
     sessionData.qrValue || sessionData.paymentUrl || sessionData.upiLink || fallbackLink,
     sessionData.qrImage || ""
@@ -2887,35 +2988,51 @@ function getFilteredProducts() {
 
 function renderProductResults() {
   const products = getFilteredProducts();
+  clearElementChildren(elements.productResults);
 
   if (!products.length) {
-    elements.productResults.innerHTML =
-      '<p class="text-sm text-slate-500 px-3 py-2">No matching products found.</p>';
+    elements.productResults.appendChild(
+      createTextElement("p", "No matching products found.", "text-sm text-slate-500 px-3 py-2")
+    );
     return;
   }
 
-  elements.productResults.innerHTML = products
-    .map(
-      (product) => `
-      <article class="product-card">
-        <div>
-          <h4 class="product-name">${product.name}</h4>
-          <p class="product-meta">${product.barcode} • ${product.category || "General"}</p>
-        </div>
-        <div class="product-actions">
-          <span class="product-price">${formatCurrency(product.price)}</span>
-          <button
-            class="add-product-btn"
-            data-product-id="${product._id}"
-            ${product.stock <= 0 ? "disabled" : ""}
-          >
-            ${product.stock <= 0 ? "Out of stock" : `Add (${product.stock})`}
-          </button>
-        </div>
-      </article>
-    `
-    )
-    .join("");
+  products.forEach((product, index) => {
+    const stockCount = Math.max(asNumber(product?.stock), 0);
+
+    const card = document.createElement("article");
+    card.className = "product-card product-card-reveal";
+    card.style.setProperty("--card-index", String(index));
+
+    const infoWrap = document.createElement("div");
+    infoWrap.appendChild(createTextElement("h4", product?.name || "Unnamed product", "product-name"));
+    infoWrap.appendChild(
+      createTextElement(
+        "p",
+        `${String(product?.barcode || "") || "-"} • ${String(product?.category || "General")}`,
+        "product-meta"
+      )
+    );
+
+    const actionsWrap = document.createElement("div");
+    actionsWrap.className = "product-actions";
+
+    actionsWrap.appendChild(createTextElement("span", formatCurrency(product?.price), "product-price"));
+
+    const addButton = createTextElement(
+      "button",
+      stockCount <= 0 ? "Out of stock" : `Add (${stockCount})`,
+      "add-product-btn"
+    );
+    addButton.type = "button";
+    addButton.dataset.productId = String(product?._id || "");
+    addButton.disabled = stockCount <= 0;
+
+    actionsWrap.appendChild(addButton);
+    card.appendChild(infoWrap);
+    card.appendChild(actionsWrap);
+    elements.productResults.appendChild(card);
+  });
 }
 
 function getCartSubtotal() {
@@ -2981,28 +3098,51 @@ function syncMobileCartRail() {
 }
 
 function renderCart() {
+  clearElementChildren(elements.cartList);
+
   if (!state.cart.length) {
-    elements.cartList.innerHTML = '<p class="text-sm text-slate-500 px-3 py-4">Your cart is empty.</p>';
+    elements.cartList.appendChild(
+      createTextElement("p", "Your cart is empty.", "text-sm text-slate-500 px-3 py-4")
+    );
   } else {
-    elements.cartList.innerHTML = state.cart
-      .map(
-        (item) => `
-        <div class="cart-row ${lastCartHighlightProductId === item.productId ? "cart-row-added" : ""}">
-          <div>
-            <p class="font-semibold text-slate-900">${item.name}</p>
-            <p class="text-xs text-slate-500">${item.barcode}</p>
-          </div>
-          <div class="cart-controls">
-            <button class="qty-btn" data-cart-action="decrement" data-product-id="${item.productId}">-</button>
-            <span>${item.quantity}</span>
-            <button class="qty-btn" data-cart-action="increment" data-product-id="${item.productId}">+</button>
-            <button class="remove-btn" data-cart-action="remove" data-product-id="${item.productId}">Remove</button>
-          </div>
-          <p class="font-semibold">${formatCurrency(item.lineTotal)}</p>
-        </div>
-      `
-      )
-      .join("");
+    state.cart.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = `cart-row ${lastCartHighlightProductId === item.productId ? "cart-row-added" : ""}`.trim();
+
+      const infoWrap = document.createElement("div");
+      infoWrap.appendChild(createTextElement("p", item?.name || "Item", "font-semibold text-slate-900"));
+      infoWrap.appendChild(createTextElement("p", item?.barcode || "", "text-xs text-slate-500"));
+
+      const controls = document.createElement("div");
+      controls.className = "cart-controls";
+
+      const decrementButton = createTextElement("button", "-", "qty-btn");
+      decrementButton.type = "button";
+      decrementButton.dataset.cartAction = "decrement";
+      decrementButton.dataset.productId = String(item?.productId || "");
+
+      const quantityLabel = createTextElement("span", Math.max(asNumber(item?.quantity), 0));
+
+      const incrementButton = createTextElement("button", "+", "qty-btn");
+      incrementButton.type = "button";
+      incrementButton.dataset.cartAction = "increment";
+      incrementButton.dataset.productId = String(item?.productId || "");
+
+      const removeButton = createTextElement("button", "Remove", "remove-btn");
+      removeButton.type = "button";
+      removeButton.dataset.cartAction = "remove";
+      removeButton.dataset.productId = String(item?.productId || "");
+
+      controls.appendChild(decrementButton);
+      controls.appendChild(quantityLabel);
+      controls.appendChild(incrementButton);
+      controls.appendChild(removeButton);
+
+      row.appendChild(infoWrap);
+      row.appendChild(controls);
+      row.appendChild(createTextElement("p", formatCurrency(item?.lineTotal), "font-semibold"));
+      elements.cartList.appendChild(row);
+    });
   }
 
   const subtotal = getCartSubtotal();
@@ -3072,37 +3212,63 @@ function getFilteredInventoryProducts() {
 
 function renderProductTable() {
   const products = getFilteredInventoryProducts();
+  clearElementChildren(elements.productTableBody);
 
   if (!products.length) {
-    elements.productTableBody.innerHTML =
-      '<tr class="table-empty-row"><td colspan="7" class="px-4 py-4 text-center text-slate-500">No products available.</td></tr>';
+    const row = document.createElement("tr");
+    row.className = "table-empty-row";
+    const cell = createTextElement("td", "No products available.", "px-4 py-4 text-center text-slate-500");
+    cell.colSpan = 7;
+    row.appendChild(cell);
+    elements.productTableBody.appendChild(row);
     return;
   }
 
-  elements.productTableBody.innerHTML = products
-    .map(
-      (product) => `
-      <tr>
-        <td class="px-3 py-3" data-label="Name">${product.name}</td>
-        <td class="px-3 py-3" data-label="Barcode">${product.barcode}</td>
-        <td class="px-3 py-3" data-label="Category">${product.category || "General"}</td>
-        <td class="px-3 py-3" data-label="Price">${formatCurrency(product.price)}</td>
-        <td class="px-3 py-3" data-label="Stock">
-          <span class="stock-pill ${product.stock <= 5 ? "stock-pill-low" : "stock-pill-ok"}">${product.stock}</span>
-        </td>
-        <td class="px-3 py-3" data-label="Status">${product.isActive ? "Active" : "Inactive"}</td>
-        <td class="px-3 py-3" data-label="Actions">
-          <div class="admin-actions">
-            <button class="table-btn" data-product-action="edit" data-product-id="${product._id}">Edit</button>
-            <button class="table-btn" data-product-action="set-stock" data-product-id="${product._id}">Set Stock</button>
-            <button class="table-btn" data-product-action="restock" data-product-id="${product._id}">+10</button>
-            <button class="table-btn danger" data-product-action="delete" data-product-id="${product._id}">Deactivate</button>
-          </div>
-        </td>
-      </tr>
-    `
-    )
-    .join("");
+  products.forEach((product) => {
+    const row = document.createElement("tr");
+
+    const appendCell = (label, text, className = "px-3 py-3") => {
+      const cell = createTextElement("td", text, className);
+      cell.dataset.label = label;
+      row.appendChild(cell);
+      return cell;
+    };
+
+    appendCell("Name", product?.name || "-");
+    appendCell("Barcode", product?.barcode || "-");
+    appendCell("Category", product?.category || "General");
+    appendCell("Price", formatCurrency(product?.price));
+
+    const stockCell = appendCell("Stock", "");
+    const stockPill = createTextElement(
+      "span",
+      Math.max(asNumber(product?.stock), 0),
+      `stock-pill ${asNumber(product?.stock) <= 5 ? "stock-pill-low" : "stock-pill-ok"}`
+    );
+    stockCell.appendChild(stockPill);
+
+    appendCell("Status", product?.isActive ? "Active" : "Inactive");
+
+    const actionsCell = appendCell("Actions", "");
+    const actionsWrap = document.createElement("div");
+    actionsWrap.className = "admin-actions";
+
+    const makeActionButton = (label, action, extraClass = "") => {
+      const button = createTextElement("button", label, `table-btn ${extraClass}`.trim());
+      button.type = "button";
+      button.dataset.productAction = action;
+      button.dataset.productId = String(product?._id || "");
+      return button;
+    };
+
+    actionsWrap.appendChild(makeActionButton("Edit", "edit"));
+    actionsWrap.appendChild(makeActionButton("Set Stock", "set-stock"));
+    actionsWrap.appendChild(makeActionButton("+10", "restock"));
+    actionsWrap.appendChild(makeActionButton("Deactivate", "delete", "danger"));
+    actionsCell.appendChild(actionsWrap);
+
+    elements.productTableBody.appendChild(row);
+  });
 }
 
 function getFilteredAdminUsers() {
@@ -3138,43 +3304,70 @@ function renderAdminUsersTable() {
   }
 
   const users = getFilteredAdminUsers();
+  clearElementChildren(elements.userTableBody);
 
   if (!users.length) {
-    elements.userTableBody.innerHTML =
-      '<tr class="table-empty-row"><td colspan="6" class="px-4 py-4 text-center text-slate-500">No users found.</td></tr>';
+    const row = document.createElement("tr");
+    row.className = "table-empty-row";
+    const cell = createTextElement("td", "No users found.", "px-4 py-4 text-center text-slate-500");
+    cell.colSpan = 6;
+    row.appendChild(cell);
+    elements.userTableBody.appendChild(row);
     return;
   }
 
   const currentUserId = getUserId(state.authUser);
 
-  elements.userTableBody.innerHTML = users
-    .map((user) => {
-      const userId = getUserId(user);
-      const isCurrentUser = userId === currentUserId;
-      const activeClass = user.isActive ? "user-status-active" : "user-status-inactive";
-      const statusLabel = user.isActive ? "Active" : "Inactive";
-      const toggleLabel = isCurrentUser ? "Current Account" : user.isActive ? "Deactivate" : "Activate";
-      const disableToggle = isCurrentUser ? "disabled" : "";
+  users.forEach((user) => {
+    const userId = getUserId(user);
+    const isCurrentUser = userId === currentUserId;
+    const activeClass = user.isActive ? "user-status-active" : "user-status-inactive";
+    const statusLabel = user.isActive ? "Active" : "Inactive";
+    const toggleLabel = isCurrentUser ? "Current Account" : user.isActive ? "Deactivate" : "Activate";
 
-      return `
-      <tr>
-        <td class="px-3 py-3" data-label="Username">${user.username || "-"}</td>
-        <td class="px-3 py-3" data-label="Display Name">${user.displayName || "-"}</td>
-        <td class="px-3 py-3 uppercase" data-label="Role">${user.role || "cashier"}</td>
-        <td class="px-3 py-3" data-label="Status">
-          <span class="user-status-pill ${activeClass}">${statusLabel}</span>
-        </td>
-        <td class="px-3 py-3" data-label="Last Login">${formatDateTime(user.lastLoginAt)}</td>
-        <td class="px-3 py-3" data-label="Actions">
-          <div class="admin-actions">
-            <button class="table-btn" data-user-action="reset-password" data-user-id="${userId}">Reset Password</button>
-            <button class="table-btn ${user.isActive ? "danger" : ""}" data-user-action="toggle-status" data-user-id="${userId}" ${disableToggle}>${toggleLabel}</button>
-          </div>
-        </td>
-      </tr>
-    `;
-    })
-    .join("");
+    const row = document.createElement("tr");
+
+    const appendCell = (label, text, className = "px-3 py-3") => {
+      const cell = createTextElement("td", text, className);
+      cell.dataset.label = label;
+      row.appendChild(cell);
+      return cell;
+    };
+
+    appendCell("Username", user?.username || "-");
+    appendCell("Display Name", user?.displayName || "-");
+    appendCell("Role", user?.role || "cashier", "px-3 py-3 uppercase");
+
+    const statusCell = appendCell("Status", "");
+    statusCell.appendChild(createTextElement("span", statusLabel, `user-status-pill ${activeClass}`));
+
+    appendCell("Last Login", formatDateTime(user?.lastLoginAt));
+
+    const actionsCell = appendCell("Actions", "");
+    const actionsWrap = document.createElement("div");
+    actionsWrap.className = "admin-actions";
+
+    const resetButton = createTextElement("button", "Reset Password", "table-btn");
+    resetButton.type = "button";
+    resetButton.dataset.userAction = "reset-password";
+    resetButton.dataset.userId = userId;
+
+    const toggleButton = createTextElement(
+      "button",
+      toggleLabel,
+      `table-btn ${user?.isActive ? "danger" : ""}`.trim()
+    );
+    toggleButton.type = "button";
+    toggleButton.dataset.userAction = "toggle-status";
+    toggleButton.dataset.userId = userId;
+    toggleButton.disabled = isCurrentUser;
+
+    actionsWrap.appendChild(resetButton);
+    actionsWrap.appendChild(toggleButton);
+    actionsCell.appendChild(actionsWrap);
+
+    elements.userTableBody.appendChild(row);
+  });
 }
 
 function getFilteredHistorySales() {
@@ -3207,33 +3400,50 @@ function getFilteredHistorySales() {
 
 function renderHistoryTable() {
   const historyRows = getFilteredHistorySales();
+  clearElementChildren(elements.historyTableBody);
 
   if (!historyRows.length) {
-    elements.historyTableBody.innerHTML =
-      '<tr class="table-empty-row"><td colspan="6" class="px-4 py-4 text-center text-slate-500">No transactions found.</td></tr>';
+    const row = document.createElement("tr");
+    row.className = "table-empty-row";
+    const cell = createTextElement("td", "No transactions found.", "px-4 py-4 text-center text-slate-500");
+    cell.colSpan = 6;
+    row.appendChild(cell);
+    elements.historyTableBody.appendChild(row);
     return;
   }
 
-  elements.historyTableBody.innerHTML = historyRows
-    .map(
-      (sale) => `
-      <tr>
-        <td class="px-3 py-3" data-label="Bill No">${sale.billNumber}</td>
-        <td class="px-3 py-3" data-label="Date/Time">${new Date(sale.createdAt).toLocaleString()}</td>
-        <td class="px-3 py-3 uppercase" data-label="Mode">${sale.paymentMethod}</td>
-        <td class="px-3 py-3" data-label="Items">${sale.items.length}</td>
-        <td class="px-3 py-3 font-semibold" data-label="Total">${formatCurrency(sale.total)}</td>
-        <td class="px-3 py-3" data-label="Cashier">${sale.cashier || "Default Cashier"}</td>
-      </tr>
-    `
-    )
-    .join("");
+  historyRows.forEach((sale) => {
+    const row = document.createElement("tr");
+
+    const appendCell = (label, text, className = "px-3 py-3") => {
+      const cell = createTextElement("td", text, className);
+      cell.dataset.label = label;
+      row.appendChild(cell);
+      return cell;
+    };
+
+    appendCell("Bill No", sale?.billNumber || "-");
+    appendCell("Date/Time", formatDateTime(sale?.createdAt));
+    appendCell("Mode", String(sale?.paymentMethod || "-").toUpperCase(), "px-3 py-3 uppercase");
+    appendCell("Items", Math.max(asNumber(sale?.items?.length), 0));
+    appendCell("Total", formatCurrency(sale?.total), "px-3 py-3 font-semibold");
+    appendCell("Cashier", sale?.cashier || "Default Cashier");
+
+    elements.historyTableBody.appendChild(row);
+  });
 }
 
 function renderLowStockAlert(lowStockProducts) {
+  clearElementChildren(elements.lowStockAlert);
+
   if (!lowStockProducts.length) {
-    elements.lowStockAlert.innerHTML =
-      '<p class="text-sm text-emerald-700">Inventory healthy. No products are below threshold.</p>';
+    elements.lowStockAlert.appendChild(
+      createTextElement(
+        "p",
+        "Inventory healthy. No products are below threshold.",
+        "text-sm text-emerald-700"
+      )
+    );
     return;
   }
 
@@ -3242,10 +3452,8 @@ function renderLowStockAlert(lowStockProducts) {
     .map((product) => `${product.name} (${product.stock})`)
     .join(", ");
 
-  elements.lowStockAlert.innerHTML = `
-    <div class="low-stock-chip">Low stock alert</div>
-    <p class="text-sm text-amber-800">${lowStockText}</p>
-  `;
+  elements.lowStockAlert.appendChild(createTextElement("div", "Low stock alert", "low-stock-chip"));
+  elements.lowStockAlert.appendChild(createTextElement("p", lowStockText, "text-sm text-amber-800"));
 }
 
 function normalizePaymentBreakdownEntries(entries = []) {
@@ -3419,29 +3627,59 @@ function DashboardCard({
   displayValue,
   title,
   description,
-  icon,
   tone,
   trendText,
   trendTone,
+  iconMarkup = "",
+  isFeatured = false,
 }) {
-  return `
-    <article class="dashboard-card dashboard-card-${tone}">
-      <div class="dashboard-card-head">
-        <span class="dashboard-card-icon" aria-hidden="true">${icon}</span>
-        <span class="dashboard-card-trend dashboard-card-trend-${trendTone}">${trendText}</span>
-      </div>
-      <p class="dashboard-card-title">${title}</p>
-      <h3
-        class="dashboard-card-value"
-        data-metric-key="${metricKey}"
-        data-target-value="${Math.max(asNumber(targetValue), 0)}"
-        data-metric-format="${metricFormat}"
-      >
-        ${displayValue}
-      </h3>
-      <p class="dashboard-card-description">${description}</p>
-    </article>
-  `;
+  const metricGlyphs = {
+    totalRevenue: "₹",
+    totalOrders: "#",
+    avgOrderValue: "AVG",
+    lowStockItems: "!",
+    stockValue: "SV",
+  };
+
+  const card = document.createElement("article");
+  card.className = `dashboard-card dashboard-card-${tone}${isFeatured ? " dashboard-card-featured" : ""}`;
+
+  const head = document.createElement("div");
+  head.className = "dashboard-card-head";
+
+  const iconWrap = document.createElement("span");
+  iconWrap.className = "dashboard-card-icon";
+  iconWrap.setAttribute("aria-hidden", "true");
+  if (iconMarkup) {
+    iconWrap.innerHTML = iconMarkup;
+  } else {
+    iconWrap.textContent = metricGlyphs[String(metricKey || "")] || "•";
+  }
+
+  const trend = createTextElement(
+    "span",
+    trendText,
+    `dashboard-card-trend dashboard-card-trend-${trendTone}`
+  );
+
+  head.appendChild(iconWrap);
+  head.appendChild(trend);
+
+  const titleNode = createTextElement("p", title, "dashboard-card-title");
+
+  const valueNode = createTextElement("h3", displayValue, "dashboard-card-value");
+  valueNode.dataset.metricKey = String(metricKey || "");
+  valueNode.dataset.targetValue = String(Math.max(asNumber(targetValue), 0));
+  valueNode.dataset.metricFormat = String(metricFormat || "number");
+
+  const descriptionNode = createTextElement("p", description, "dashboard-card-description");
+
+  card.appendChild(head);
+  card.appendChild(titleNode);
+  card.appendChild(valueNode);
+  card.appendChild(descriptionNode);
+
+  return card;
 }
 
 function animateDashboardCardValues() {
@@ -3495,35 +3733,59 @@ function renderDashboardCards(metrics) {
     return;
   }
 
-  const cardsHtml = DASHBOARD_METRIC_CONFIG.map((config) => {
+  clearElementChildren(elements.dashboardMetricsGrid);
+
+  const rangeTitlePrefixMap = {
+    daily: "Today",
+    weekly: "This Week",
+    monthly: "This Month",
+  };
+  const rangePrefix = rangeTitlePrefixMap[state.dashboardRange] || "Selected Range";
+
+  DASHBOARD_METRIC_CONFIG.forEach((config, index) => {
     const rawValue = metrics?.[config.key] ?? 0;
     const trend = metrics?.trend?.[config.key] || {
       text: "No comparison data",
       tone: "neutral",
     };
 
-    const description =
+    let title = config.title;
+    let description = config.description;
+
+    if (config.key === "totalRevenue") {
+      title = `${rangePrefix} Sales`;
+      description = `Revenue billed in ${rangePrefix.toLowerCase()}`;
+    } else if (config.key === "totalOrders") {
+      title = `${rangePrefix} Orders`;
+      description = `Completed transactions in ${rangePrefix.toLowerCase()}`;
+    } else if (config.key === "avgOrderValue") {
+      title = "Average Ticket";
+    }
+
+    const resolvedDescription =
       !metrics?.hasSalesData && ["totalRevenue", "totalOrders", "avgOrderValue"].includes(config.key)
         ? "No sales yet for selected range"
-        : config.description;
+        : description;
 
     const metricFormat = getMetricValueFormat(config.key);
 
-    return DashboardCard({
+    const card = DashboardCard({
       metricKey: config.key,
       targetValue: rawValue,
       metricFormat,
       displayValue: formatMetricValue(rawValue, metricFormat),
-      title: config.title,
-      description,
-      icon: config.icon,
+      title,
+      description: resolvedDescription,
       tone: config.tone,
       trendText: trend.text,
       trendTone: trend.tone,
+      iconMarkup: config.icon,
+      isFeatured: index === 0,
     });
-  }).join("");
 
-  elements.dashboardMetricsGrid.innerHTML = cardsHtml;
+    elements.dashboardMetricsGrid.appendChild(card);
+  });
+
   animateDashboardCardValues();
 }
 
@@ -3531,6 +3793,8 @@ function renderDashboardInsights(metrics = {}, salesSummaryData = {}) {
   if (!elements.dashboardInsights) {
     return;
   }
+
+  clearElementChildren(elements.dashboardInsights);
 
   const paymentBreakdownEntries = normalizePaymentBreakdownEntries(salesSummaryData?.paymentBreakdown || []);
   const leadPayment = paymentBreakdownEntries[0];
@@ -3561,23 +3825,23 @@ function renderDashboardInsights(metrics = {}, salesSummaryData = {}) {
     },
   ];
 
-  elements.dashboardInsights.innerHTML = insights
-    .map(
-      (insight) => `
-      <article class="insight-chip">
-        <p>${insight.label}</p>
-        <strong>${insight.value}</strong>
-      </article>
-    `
-    )
-    .join("");
+  insights.forEach((insight) => {
+    const insightCard = document.createElement("article");
+    insightCard.className = "insight-chip";
+    insightCard.appendChild(createTextElement("p", insight.label));
+    insightCard.appendChild(createTextElement("strong", insight.value));
+    elements.dashboardInsights.appendChild(insightCard);
+  });
 }
 
 function renderPaymentBreakdown(entries) {
   const normalizedEntries = normalizePaymentBreakdownEntries(entries);
+  clearElementChildren(elements.paymentBreakdown);
 
   if (!normalizedEntries.length) {
-    elements.paymentBreakdown.innerHTML = '<p class="text-sm text-slate-500">No payment data available.</p>';
+    elements.paymentBreakdown.appendChild(
+      createTextElement("p", "No payment data available.", "text-sm text-slate-500")
+    );
     return;
   }
 
@@ -3598,54 +3862,81 @@ function renderPaymentBreakdown(entries) {
     })
     .join(", ");
 
-  elements.paymentBreakdown.innerHTML = `
-    <div class="payment-distribution-layout">
-      <div class="payment-donut-wrap">
-        <div class="payment-donut" style="background: conic-gradient(${gradientSegments});"></div>
-        <div class="payment-donut-center">
-          <strong>${formatCurrency(totalAmount)}</strong>
-          <span>Total</span>
-        </div>
-      </div>
-      <div class="payment-legend-list">
-        ${normalizedEntries
-    .map(
-      (entry, index) => `
-      <div class="payment-row">
-        <span class="payment-label"><i class="payment-swatch" style="background:${palette[index % palette.length]};"></i>${entry.label}</span>
-        <span>${formatNumber(entry.count)} orders</span>
-        <strong>${formatCurrency(entry.amount)}</strong>
-      </div>
-    `
-    )
-    .join("")}
-      </div>
-    </div>
-  `;
+  const layout = document.createElement("div");
+  layout.className = "payment-distribution-layout";
+
+  const donutWrap = document.createElement("div");
+  donutWrap.className = "payment-donut-wrap";
+
+  const donut = document.createElement("div");
+  donut.className = "payment-donut";
+  donut.style.background = `conic-gradient(${gradientSegments})`;
+
+  const donutCenter = document.createElement("div");
+  donutCenter.className = "payment-donut-center";
+  donutCenter.appendChild(createTextElement("strong", formatCurrency(totalAmount)));
+  donutCenter.appendChild(createTextElement("span", "Total"));
+
+  donutWrap.appendChild(donut);
+  donutWrap.appendChild(donutCenter);
+
+  const legendList = document.createElement("div");
+  legendList.className = "payment-legend-list";
+
+  normalizedEntries.forEach((entry, index) => {
+    const row = document.createElement("div");
+    row.className = "payment-row";
+
+    const label = document.createElement("span");
+    label.className = "payment-label";
+
+    const swatch = document.createElement("i");
+    swatch.className = "payment-swatch";
+    swatch.style.background = palette[index % palette.length];
+
+    label.appendChild(swatch);
+    label.appendChild(document.createTextNode(entry.label));
+
+    row.appendChild(label);
+    row.appendChild(createTextElement("span", `${formatNumber(entry.count)} orders`));
+    row.appendChild(createTextElement("strong", formatCurrency(entry.amount)));
+    legendList.appendChild(row);
+  });
+
+  layout.appendChild(donutWrap);
+  layout.appendChild(legendList);
+  elements.paymentBreakdown.appendChild(layout);
 }
 
 function renderTrendChart(trend) {
   const normalizedTrend = normalizeTrendEntries(trend);
+  clearElementChildren(elements.trendChart);
 
   if (!normalizedTrend.length) {
-    elements.trendChart.innerHTML = '<p class="text-sm text-slate-500">No trend data available.</p>';
+    elements.trendChart.appendChild(
+      createTextElement("p", "No trend data available.", "text-sm text-slate-500")
+    );
     return;
   }
 
   if (normalizedTrend.length === 1) {
     const entry = normalizedTrend[0];
 
-    elements.trendChart.innerHTML = `
-      <div class="trend-chart-shell">
-        <div class="trend-summary-grid">
-          <div class="trend-summary-item">
-            <p>${entry.label}</p>
-            <strong>${formatCurrency(entry.revenue)}</strong>
-            <span>${formatNumber(entry.transactions)} orders</span>
-          </div>
-        </div>
-      </div>
-    `;
+    const shell = document.createElement("div");
+    shell.className = "trend-chart-shell";
+
+    const summaryGrid = document.createElement("div");
+    summaryGrid.className = "trend-summary-grid";
+
+    const summaryItem = document.createElement("div");
+    summaryItem.className = "trend-summary-item";
+    summaryItem.appendChild(createTextElement("p", entry.label));
+    summaryItem.appendChild(createTextElement("strong", formatCurrency(entry.revenue)));
+    summaryItem.appendChild(createTextElement("span", `${formatNumber(entry.transactions)} orders`));
+
+    summaryGrid.appendChild(summaryItem);
+    shell.appendChild(summaryGrid);
+    elements.trendChart.appendChild(shell);
 
     return;
   }
@@ -3681,64 +3972,108 @@ function renderTrendChart(trend) {
   const lastPoint = points[points.length - 1];
   const areaPath = `${linePath} L ${lastPoint.x.toFixed(2)} ${chartBottom.toFixed(2)} L ${firstPoint.x.toFixed(2)} ${chartBottom.toFixed(2)} Z`;
 
-  const trendSummary = points
-    .slice(-4)
-    .map(
-      (point) => `
-      <div class="trend-summary-item">
-        <p>${point.label}</p>
-        <strong>${formatCurrency(point.revenue)}</strong>
-        <span>${formatNumber(point.transactions)} orders</span>
-      </div>
-    `
-    )
-    .join("");
+  const svgNs = "http://www.w3.org/2000/svg";
+  const shell = document.createElement("div");
+  shell.className = "trend-chart-shell";
 
-  elements.trendChart.innerHTML = `
-    <div class="trend-chart-shell">
-      <svg class="trend-chart-svg" viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Revenue trend line chart">
-        <defs>
-          <linearGradient id="trend-fill-gradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#16a34a" stop-opacity="0.35" />
-            <stop offset="100%" stop-color="#16a34a" stop-opacity="0" />
-          </linearGradient>
-        </defs>
-        <path d="${areaPath}" fill="url(#trend-fill-gradient)"></path>
-        <path d="${linePath}" class="trend-line-path"></path>
-        ${points
-          .map(
-            (point) =>
-              `<circle cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="4" class="trend-line-point"></circle>`
-          )
-          .join("")}
-      </svg>
-      <div class="trend-summary-grid">${trendSummary}</div>
-    </div>
-  `;
+  const svg = document.createElementNS(svgNs, "svg");
+  svg.setAttribute("class", "trend-chart-svg");
+  svg.setAttribute("viewBox", `0 0 ${chartWidth} ${chartHeight}`);
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "Revenue trend line chart");
+
+  const defs = document.createElementNS(svgNs, "defs");
+  const linearGradient = document.createElementNS(svgNs, "linearGradient");
+  linearGradient.setAttribute("id", "trend-fill-gradient");
+  linearGradient.setAttribute("x1", "0");
+  linearGradient.setAttribute("y1", "0");
+  linearGradient.setAttribute("x2", "0");
+  linearGradient.setAttribute("y2", "1");
+
+  const stopStart = document.createElementNS(svgNs, "stop");
+  stopStart.setAttribute("offset", "0%");
+  stopStart.setAttribute("stop-color", "#16a34a");
+  stopStart.setAttribute("stop-opacity", "0.35");
+
+  const stopEnd = document.createElementNS(svgNs, "stop");
+  stopEnd.setAttribute("offset", "100%");
+  stopEnd.setAttribute("stop-color", "#16a34a");
+  stopEnd.setAttribute("stop-opacity", "0");
+
+  linearGradient.appendChild(stopStart);
+  linearGradient.appendChild(stopEnd);
+  defs.appendChild(linearGradient);
+  svg.appendChild(defs);
+
+  const areaPathElement = document.createElementNS(svgNs, "path");
+  areaPathElement.setAttribute("d", areaPath);
+  areaPathElement.setAttribute("fill", "url(#trend-fill-gradient)");
+  svg.appendChild(areaPathElement);
+
+  const linePathElement = document.createElementNS(svgNs, "path");
+  linePathElement.setAttribute("d", linePath);
+  linePathElement.setAttribute("class", "trend-line-path");
+  svg.appendChild(linePathElement);
+
+  points.forEach((point) => {
+    const circle = document.createElementNS(svgNs, "circle");
+    circle.setAttribute("cx", point.x.toFixed(2));
+    circle.setAttribute("cy", point.y.toFixed(2));
+    circle.setAttribute("r", "4");
+    circle.setAttribute("class", "trend-line-point");
+    svg.appendChild(circle);
+  });
+
+  const summaryGrid = document.createElement("div");
+  summaryGrid.className = "trend-summary-grid";
+
+  points.slice(-4).forEach((point) => {
+    const summaryItem = document.createElement("div");
+    summaryItem.className = "trend-summary-item";
+    summaryItem.appendChild(createTextElement("p", point.label));
+    summaryItem.appendChild(createTextElement("strong", formatCurrency(point.revenue)));
+    summaryItem.appendChild(createTextElement("span", `${formatNumber(point.transactions)} orders`));
+    summaryGrid.appendChild(summaryItem);
+  });
+
+  shell.appendChild(svg);
+  shell.appendChild(summaryGrid);
+  elements.trendChart.appendChild(shell);
 }
 
 function renderTopProducts(products) {
+  clearElementChildren(elements.topProducts);
+
   if (!Array.isArray(products) || !products.length) {
-    elements.topProducts.innerHTML = '<p class="text-sm text-slate-500">No product sales data yet.</p>';
+    elements.topProducts.appendChild(
+      createTextElement("p", "No product sales data yet.", "text-sm text-slate-500")
+    );
     return;
   }
 
-  elements.topProducts.innerHTML = products
-    .map(
-      (entry) => `
-      <div class="top-product-row">
-        <div>
-          <p class="font-semibold text-slate-900">${entry?._id?.name || entry?.name || "-"}</p>
-          <p class="text-xs text-slate-500">${entry?._id?.barcode || entry?.barcode || "-"}</p>
-        </div>
-        <div class="text-right">
-          <p class="text-sm">Qty: ${formatNumber(entry?.quantitySold || entry?.quantity || 0)}</p>
-          <p class="font-semibold">${formatCurrency(entry?.revenue || 0)}</p>
-        </div>
-      </div>
-    `
-    )
-    .join("");
+  products.forEach((entry) => {
+    const row = document.createElement("div");
+    row.className = "top-product-row";
+
+    const infoWrap = document.createElement("div");
+    infoWrap.appendChild(
+      createTextElement("p", entry?._id?.name || entry?.name || "-", "font-semibold text-slate-900")
+    );
+    infoWrap.appendChild(
+      createTextElement("p", entry?._id?.barcode || entry?.barcode || "-", "text-xs text-slate-500")
+    );
+
+    const metricsWrap = document.createElement("div");
+    metricsWrap.className = "text-right";
+    metricsWrap.appendChild(
+      createTextElement("p", `Qty: ${formatNumber(entry?.quantitySold || entry?.quantity || 0)}`, "text-sm")
+    );
+    metricsWrap.appendChild(createTextElement("p", formatCurrency(entry?.revenue || 0), "font-semibold"));
+
+    row.appendChild(infoWrap);
+    row.appendChild(metricsWrap);
+    elements.topProducts.appendChild(row);
+  });
 }
 
 function mergeReportFilters(serverFilters, fallbackFilters) {
@@ -4128,36 +4463,45 @@ function openBillModal(sale, isOffline = false) {
   const draftInvoiceRecord = createInvoiceRecordFromSale(normalizedSale, { isOffline });
   const persistedInvoiceRecord = saveInvoiceRecord(draftInvoiceRecord) || draftInvoiceRecord;
   setBillActionContext(persistedInvoiceRecord);
+  let invoiceLinkAnchor = null;
+
+  const syncModalInvoiceLinkAnchor = (invoiceRecord) => {
+    if (!invoiceLinkAnchor) {
+      return;
+    }
+
+    const latestInvoiceLink = String(invoiceRecord?.invoiceLink || "").trim();
+    const safeInvoiceLink = sanitizeHttpUrl(latestInvoiceLink, "#");
+    invoiceLinkAnchor.href = safeInvoiceLink;
+    invoiceLinkAnchor.textContent = latestInvoiceLink || "Link unavailable";
+
+    if (safeInvoiceLink !== "#") {
+      invoiceLinkAnchor.target = "_blank";
+      invoiceLinkAnchor.rel = "noopener noreferrer";
+    } else {
+      invoiceLinkAnchor.removeAttribute("target");
+      invoiceLinkAnchor.removeAttribute("rel");
+    }
+  };
 
   if (!isOffline) {
     setBillSendStatus("Securing share link...", "pending");
-    void ensureBackendSignedInvoiceLink(persistedInvoiceRecord).then((securedInvoice) => {
+    void ensureBackendInvoiceShareLink(persistedInvoiceRecord).then((securedInvoice) => {
       if (!securedInvoice || state.activeInvoice?.invoiceId !== persistedInvoiceRecord.invoiceId) {
         return;
       }
 
-      if (String(securedInvoice.signedToken || "").trim()) {
+      if (String(securedInvoice.shareId || "").trim()) {
         if (!securedInvoice.sentViaWhatsapp) {
           setBillSendStatus("Secure link ready", "success");
         }
       } else if (!securedInvoice.sentViaWhatsapp) {
-        setBillSendStatus("Using fallback local link", "warning");
+        setBillSendStatus("Secure link unavailable until online", "warning");
       }
+
+      syncModalInvoiceLinkAnchor(securedInvoice);
     });
   }
-
-  const rows = normalizedSale.items
-    .map(
-      (item) => `
-      <tr>
-        <td>${item.name}</td>
-        <td>${item.quantity}</td>
-        <td>${formatCurrency(item.unitPrice)}</td>
-        <td>${formatCurrency(item.lineTotal)}</td>
-      </tr>
-    `
-    )
-    .join("");
 
   const billDate = new Date(normalizedSale.createdAt || Date.now()).toLocaleString();
   const successLabel = isOffline ? "Saved Offline" : "Payment Successful";
@@ -4166,64 +4510,102 @@ function openBillModal(sale, isOffline = false) {
     : "Share receipt instantly via PDF or WhatsApp.";
   const shopProfile = persistedInvoiceRecord.shop || {};
 
-  elements.billContent.innerHTML = `
-    <section class="bill-success-panel">
-      <span class="bill-success-chip">${successLabel}</span>
-      <div class="bill-success-icon" aria-hidden="true">✓</div>
-      <h4 class="bill-success-total">${formatCurrency(normalizedSale.total || 0)}</h4>
-      <p class="bill-success-meta">Bill No: ${normalizedSale.billNumber || "-"}</p>
-      <p class="bill-success-meta">Invoice ID: ${persistedInvoiceRecord.invoiceId}</p>
-      <p class="bill-success-meta">${successMeta}</p>
-    </section>
+  clearElementChildren(elements.billContent);
 
-    <div class="bill-head">
-      <h3>${shopProfile.name || "CounterCraft POS"} Invoice</h3>
-      <p>${isOffline ? "OFFLINE BILL (Pending Sync)" : "PAID"}</p>
-    </div>
-    <p>Invoice Link: <a href="${persistedInvoiceRecord.invoiceLink}" target="_blank" rel="noopener noreferrer">${persistedInvoiceRecord.invoiceLink}</a></p>
-    <p>Bill No: <strong>${normalizedSale.billNumber || "-"}</strong></p>
-    <p>Date: ${billDate}</p>
-    <p>Cashier: ${normalizedSale.cashier || "Default Cashier"}</p>
-    <table class="bill-table">
-      <thead>
-        <tr>
-          <th>Item</th>
-          <th>Qty</th>
-          <th>Price</th>
-          <th>Total</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <div class="bill-total-row">
-      <span>Subtotal</span>
-      <strong>${formatCurrency(normalizedSale.subtotal || 0)}</strong>
-    </div>
-    <div class="bill-total-row">
-      <span>Tax</span>
-      <strong>${formatCurrency(normalizedSale.tax || 0)}</strong>
-    </div>
-    <div class="bill-total-row">
-      <span>Discount</span>
-      <strong>${formatCurrency(normalizedSale.discount || 0)}</strong>
-    </div>
-    <div class="bill-total-row grand">
-      <span>Total</span>
-      <strong>${formatCurrency(normalizedSale.total || 0)}</strong>
-    </div>
-    <div class="bill-total-row">
-      <span>Payment</span>
-      <strong>${String(normalizedSale.paymentMethod || "-").toUpperCase()}</strong>
-    </div>
-    <div class="bill-total-row">
-      <span>Paid Amount</span>
-      <strong>${formatCurrency(normalizedSale.paidAmount || 0)}</strong>
-    </div>
-    <div class="bill-total-row">
-      <span>Change Due</span>
-      <strong>${formatCurrency(normalizedSale.changeDue || 0)}</strong>
-    </div>
-  `;
+  const successPanel = document.createElement("section");
+  successPanel.className = "bill-success-panel";
+  successPanel.appendChild(createTextElement("span", successLabel, "bill-success-chip"));
+
+  const successIcon = createTextElement("div", "✓", "bill-success-icon");
+  successIcon.setAttribute("aria-hidden", "true");
+  successPanel.appendChild(successIcon);
+
+  successPanel.appendChild(
+    createTextElement("h4", formatCurrency(normalizedSale.total || 0), "bill-success-total")
+  );
+  successPanel.appendChild(
+    createTextElement("p", `Bill No: ${normalizedSale.billNumber || "-"}`, "bill-success-meta")
+  );
+  successPanel.appendChild(
+    createTextElement("p", `Invoice ID: ${persistedInvoiceRecord.invoiceId}`, "bill-success-meta")
+  );
+  successPanel.appendChild(createTextElement("p", successMeta, "bill-success-meta"));
+  requestAnimationFrame(() => {
+    successPanel.classList.add("is-celebrating");
+  });
+  elements.billContent.appendChild(successPanel);
+
+  const billHead = document.createElement("div");
+  billHead.className = "bill-head";
+  billHead.appendChild(createTextElement("h3", `${shopProfile.name || "CounterCraft POS"} Invoice`));
+  billHead.appendChild(createTextElement("p", isOffline ? "OFFLINE BILL (Pending Sync)" : "PAID"));
+  elements.billContent.appendChild(billHead);
+
+  const rawInvoiceLink = String(persistedInvoiceRecord.invoiceLink || "").trim();
+  const safeInvoiceLink = sanitizeHttpUrl(rawInvoiceLink, "#");
+  const invoiceLinkRow = document.createElement("p");
+  invoiceLinkRow.appendChild(document.createTextNode("Invoice Link: "));
+
+  invoiceLinkAnchor = document.createElement("a");
+  invoiceLinkAnchor.href = safeInvoiceLink;
+  invoiceLinkAnchor.textContent = rawInvoiceLink || "Link unavailable";
+  if (safeInvoiceLink !== "#") {
+    invoiceLinkAnchor.target = "_blank";
+    invoiceLinkAnchor.rel = "noopener noreferrer";
+  }
+  invoiceLinkRow.appendChild(invoiceLinkAnchor);
+  elements.billContent.appendChild(invoiceLinkRow);
+  syncModalInvoiceLinkAnchor(persistedInvoiceRecord);
+
+  const billNumberRow = document.createElement("p");
+  billNumberRow.appendChild(document.createTextNode("Bill No: "));
+  billNumberRow.appendChild(createTextElement("strong", normalizedSale.billNumber || "-"));
+  elements.billContent.appendChild(billNumberRow);
+
+  elements.billContent.appendChild(createTextElement("p", `Date: ${billDate}`));
+  elements.billContent.appendChild(
+    createTextElement("p", `Cashier: ${normalizedSale.cashier || "Default Cashier"}`)
+  );
+
+  const table = document.createElement("table");
+  table.className = "bill-table";
+
+  const tableHead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  ["Item", "Qty", "Price", "Total"].forEach((header) => {
+    headRow.appendChild(createTextElement("th", header));
+  });
+  tableHead.appendChild(headRow);
+
+  const tableBody = document.createElement("tbody");
+  normalizedSale.items.forEach((item) => {
+    const row = document.createElement("tr");
+    row.appendChild(createTextElement("td", item?.name || "Item"));
+    row.appendChild(createTextElement("td", Math.max(asNumber(item?.quantity), 0)));
+    row.appendChild(createTextElement("td", formatCurrency(item?.unitPrice || 0)));
+    row.appendChild(createTextElement("td", formatCurrency(item?.lineTotal || 0)));
+    tableBody.appendChild(row);
+  });
+
+  table.appendChild(tableHead);
+  table.appendChild(tableBody);
+  elements.billContent.appendChild(table);
+
+  const appendBillTotalRow = (label, value, grand = false) => {
+    const row = document.createElement("div");
+    row.className = grand ? "bill-total-row grand" : "bill-total-row";
+    row.appendChild(createTextElement("span", label));
+    row.appendChild(createTextElement("strong", value));
+    elements.billContent.appendChild(row);
+  };
+
+  appendBillTotalRow("Subtotal", formatCurrency(normalizedSale.subtotal || 0));
+  appendBillTotalRow("Tax", formatCurrency(normalizedSale.tax || 0));
+  appendBillTotalRow("Discount", formatCurrency(normalizedSale.discount || 0));
+  appendBillTotalRow("Total", formatCurrency(normalizedSale.total || 0), true);
+  appendBillTotalRow("Payment", String(normalizedSale.paymentMethod || "-").toUpperCase());
+  appendBillTotalRow("Paid Amount", formatCurrency(normalizedSale.paidAmount || 0));
+  appendBillTotalRow("Change Due", formatCurrency(normalizedSale.changeDue || 0));
 
   if (!isOffline) {
     showToast("Link ready", "info");
@@ -4778,6 +5160,20 @@ function bindEvents() {
   }
 
   eventsBound = true;
+
+  const pressableSelector =
+    ".primary-btn, .action-btn, .secondary-btn, .payment-btn, .range-btn, .table-btn, .upi-primary-btn, .tab-btn, .theme-toggle-btn, .add-product-btn, .qty-btn, .remove-btn, .link-btn";
+  document.addEventListener("pointerdown", (event) => {
+    const pressable = event.target.closest(pressableSelector);
+    if (!pressable || pressable.disabled) {
+      return;
+    }
+
+    pressable.classList.add("is-pressed");
+    window.setTimeout(() => {
+      pressable.classList.remove("is-pressed");
+    }, 160);
+  });
 
   elements.tabButtons.forEach((button) => {
     button.addEventListener("click", () => {

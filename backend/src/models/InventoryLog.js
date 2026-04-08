@@ -2,6 +2,12 @@ import mongoose from "mongoose";
 
 const inventoryLogSchema = new mongoose.Schema(
   {
+    shopId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Shop",
+      required: true,
+      index: true,
+    },
     productId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Product",
@@ -51,7 +57,8 @@ const inventoryLogSchema = new mongoose.Schema(
   }
 );
 
-inventoryLogSchema.index({ createdAt: -1 });
+inventoryLogSchema.index({ shopId: 1, createdAt: -1 });
+inventoryLogSchema.index({ shopId: 1, productId: 1, createdAt: -1 });
 
 const InventoryLog = mongoose.model("InventoryLog", inventoryLogSchema);
 

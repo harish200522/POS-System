@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import Sale from "../models/Sale.js";
 import { roundCurrency } from "../utils/dateRange.js";
 import { ApiError, asyncHandler } from "../utils/errors.js";
@@ -5,6 +6,19 @@ import { ApiError, asyncHandler } from "../utils/errors.js";
 const MAX_REPORT_LIMIT = 1000;
 const DEFAULT_REPORT_LIMIT = 500;
 const DEFAULT_RANGE_DAYS = 30;
+
+function getRequestShopObjectId(req) {
+  const shopId = String(req?.shopId || req?.auth?.shopId || "").trim();
+  if (!shopId) {
+    throw new ApiError(401, "Shop context is required");
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(shopId)) {
+    throw new ApiError(401, "Invalid shop context");
+  }
+
+  return new mongoose.Types.ObjectId(shopId);
+}
 
 function parseDateInput(value, { endOfDay = false } = {}) {
   if (!value) {
@@ -34,7 +48,7 @@ function parseLimit(value) {
   return Math.min(Math.max(Math.trunc(parsed), 1), MAX_REPORT_LIMIT);
 }
 
-function buildReportFilters(query = {}) {
+function buildReportFilters(query = {}, shopId) {
   const now = new Date();
   const endDate = parseDateInput(query.endDate, { endOfDay: true }) || new Date(now);
   const startDate = parseDateInput(query.startDate) || (() => {
@@ -57,6 +71,7 @@ function buildReportFilters(query = {}) {
   }
 
   const match = {
+    shopId,
     createdAt: {
       $gte: startDate,
       $lte: endDate,
@@ -86,7 +101,8 @@ function toReportFilterPayload(filters) {
 }
 
 export const getSalesReport = asyncHandler(async (req, res) => {
-  const filters = buildReportFilters(req.query);
+  const shopId = getRequestShopObjectId(req);
+  const filters = buildReportFilters(req.query, shopId);
 
   const [summaryRows, salesRows] = await Promise.all([
     Sale.aggregate([
@@ -173,7 +189,8 @@ export const getSalesReport = asyncHandler(async (req, res) => {
 });
 
 export const getTransactionsReport = asyncHandler(async (req, res) => {
-  const filters = buildReportFilters(req.query);
+  const shopId = getRequestShopObjectId(req);
+  const filters = buildReportFilters(req.query, shopId);
 
   const [summaryRows, totalMatched, transactions] = await Promise.all([
     Sale.aggregate([

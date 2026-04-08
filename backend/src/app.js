@@ -1,3 +1,4 @@
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
 import helmet from "helmet";
@@ -11,6 +12,7 @@ import inventoryRoutes from "./routes/inventoryRoutes.js";
 import paymentSettingsRoutes from "./routes/paymentSettingsRoutes.js";
 import paymentsRoutes from "./routes/paymentsRoutes.js";
 import productsRoutes from "./routes/productsRoutes.js";
+import publicInvoiceRoutes from "./routes/publicInvoiceRoutes.js";
 import reportsRoutes from "./routes/reportsRoutes.js";
 import salesRoutes from "./routes/salesRoutes.js";
 
@@ -34,6 +36,45 @@ const authLimiter = rateLimit({
   message: {
     success: false,
     message: "Too many authentication requests. Please try again shortly.",
+  },
+});
+
+function getRequestIp(req) {
+  const forwardedForHeader = String(req.headers["x-forwarded-for"] || "").trim();
+  if (forwardedForHeader) {
+    return forwardedForHeader.split(",")[0].trim();
+  }
+
+  return String(req.ip || req.socket?.remoteAddress || "unknown").trim();
+}
+
+function logSuspiciousActivity(req, reason, extra = {}) {
+  const metadata = {
+    method: req.method,
+    path: req.originalUrl,
+    ip: getRequestIp(req),
+    userAgent: String(req.headers["user-agent"] || "unknown"),
+    ...extra,
+  };
+
+  console.warn(`[SECURITY][SUSPICIOUS] ${reason} ${JSON.stringify(metadata)}`);
+}
+
+const onboardingLimiter = rateLimit({
+  windowMs: env.onboardingRateLimitWindowMs,
+  max: env.onboardingRateLimitMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler(req, res, _next, options) {
+    logSuspiciousActivity(req, "Tenant onboarding rate limit exceeded", {
+      limit: Number(options?.limit ?? options?.max ?? env.onboardingRateLimitMax),
+      windowMs: Number(options?.windowMs ?? env.onboardingRateLimitWindowMs),
+    });
+
+    return res.status(429).json({
+      success: false,
+      message: "Too many tenant onboarding attempts. Please try again later.",
+    });
   },
 });
 
@@ -64,12 +105,16 @@ app.use(
 
 app.use("/api", apiLimiter);
 app.use("/api/auth", authLimiter);
+app.use("/api/auth/register", onboardingLimiter);
+app.use("/api/auth/bootstrap-admin", onboardingLimiter);
+app.use("/public", apiLimiter);
 
 // Webhook signature verification needs raw request body before JSON parsing.
 app.use("/api/payments/upi/webhook", express.raw({ type: "application/json" }));
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 app.use(morgan(env.isProduction ? "combined" : "dev"));
 
 app.get("/api/health", (req, res) => {
@@ -77,6 +122,20 @@ app.get("/api/health", (req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/public/invoice", publicInvoiceRoutes);
+app.use("/api/public/invoice", publicInvoiceRoutes);
+
+const blockPublicShopCreation = (req, res) => {
+  logSuspiciousActivity(req, "Blocked attempt to access removed public shop creation endpoint");
+  return res.status(403).json({
+    success: false,
+    message: "Public shop creation is disabled. Use /api/auth/register for tenant onboarding.",
+  });
+};
+
+app.post("/api/shops", blockPublicShopCreation);
+app.post("/api/shops/*", blockPublicShopCreation);
+
 app.use("/api/products", productsRoutes);
 app.use("/api/billing", billingRoutes);
 app.use("/api/payments", paymentsRoutes);

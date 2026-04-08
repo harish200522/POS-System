@@ -80,12 +80,14 @@ POS System/
 
 ## Security Hardening Implemented
 
-- JWT-based API authentication (`Bearer` token)
+- JWT-based API authentication using HTTP-only secure cookies
 - Role-based authorization:
   - `admin`: full access
   - `cashier`: POS operations and transaction history
 - Helmet security headers
 - API and auth rate limiting
+- Dedicated onboarding rate limiting for tenant/shop signup
+- Public `POST /api/shops` creation disabled (shop creation only via auth signup)
 - Strict CORS allowlist from environment config (no wildcard fallback)
 - Request validation using `express-validator`
 - Environment validation with production safety checks
@@ -204,8 +206,10 @@ Base URL: `http://127.0.0.1:5000/api`
 
 ### Auth
 
+- `POST /auth/register` - Create tenant admin + shop (recommended onboarding flow)
 - `POST /auth/bootstrap-admin` - Create first admin (works only when no users exist)
-- `POST /auth/login` - Login and receive JWT access token
+- `POST /auth/login` - Login and receive secure session cookie
+- `POST /auth/logout` - Logout and clear auth cookie
 - `GET /auth/me` - Get current authenticated user
 - `GET /auth/users` - List users (admin)
 - `POST /auth/users` - Create user (admin)
@@ -258,17 +262,31 @@ Password policy for all create/change/reset flows:
 ```bash
 cd backend
 cp .env.example .env
+# Generate secrets (run twice, one for each secret)
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 npm install
 npm run dev
 ```
 
 Backend runs on `http://127.0.0.1:5000`.
 
+Required backend environment variables:
+
+- `MONGO_URI`
+- `CLIENT_ORIGIN`
+- `JWT_SECRET` (minimum 32 chars)
+- `INVOICE_TOKEN_SECRET` (minimum 32 chars)
+
+The backend validates these at startup and exits if any are missing or weak.
+
 First-time authentication setup:
 
 1. Start backend.
-2. Call `POST /api/auth/bootstrap-admin` with username/password.
-3. Login with `POST /api/auth/login` and use returned token as `Authorization: Bearer <token>`.
+2. Call `POST /api/auth/register` to create shop + first admin.
+3. Use `POST /api/auth/bootstrap-admin` only for backward-compatible first-admin bootstrap.
+4. Login with `POST /api/auth/login`.
+
+Note: Public `POST /api/shops` is intentionally blocked to prevent abuse/spam tenant creation.
 
 ## 3) Frontend Setup
 
@@ -346,16 +364,30 @@ If Razorpay keys are missing, app still supports manual UPI confirmation using f
 Before going live, ensure:
 
 1. `NODE_ENV=production`
-2. `JWT_SECRET` is strong (minimum 32 chars, not placeholder)
+2. `MONGO_URI` is set and valid
 3. `CLIENT_ORIGIN` contains only trusted production origins
-4. `ALLOW_IN_MEMORY_DB=false`
-5. Atlas connection string is valid and uses least-privilege DB user
-6. Atlas Network Access allows only your deployment server IP(s)
-7. If enabling UPI auto-status, set all Razorpay keys together:
+4. `JWT_SECRET` is strong (minimum 32 chars, not placeholder)
+5. `INVOICE_TOKEN_SECRET` is strong (minimum 32 chars, not placeholder)
+6. Atlas connection string uses least-privilege DB user
+7. Atlas Network Access allows only your deployment server IP(s)
+8. If enabling UPI auto-status, set all Razorpay keys together:
   - `RAZORPAY_KEY_ID`
   - `RAZORPAY_KEY_SECRET`
   - `RAZORPAY_WEBHOOK_SECRET`
-8. Frontend `app.config.js` points to production backend API base URL
+9. Frontend `app.config.js` points to production backend API base URL
+
+Render backend dashboard setup:
+
+1. Open Render service -> Environment.
+2. Add `MONGO_URI`, `CLIENT_ORIGIN`, `JWT_SECRET`, and `INVOICE_TOKEN_SECRET`.
+3. Set `NODE_ENV=production`.
+4. Redeploy and confirm startup logs do not show env validation errors.
+
+Vercel frontend setup:
+
+1. Open Project -> Settings -> Environment Variables.
+2. Set frontend runtime values (for example API/public base URL) in your deployment config.
+3. Ensure your frontend origin is included in backend `CLIENT_ORIGIN`.
 
 Atlas network access guidance:
 

@@ -19,11 +19,9 @@ const userSchema = new mongoose.Schema(
       default: "",
     },
     shopId: {
-      type: String,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Shop",
       required: true,
-      trim: true,
-      default: "default-shop",
-      maxlength: 120,
       index: true,
     },
     passwordHash: {

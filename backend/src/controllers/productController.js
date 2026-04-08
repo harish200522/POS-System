@@ -2,6 +2,15 @@ import InventoryLog from "../models/InventoryLog.js";
 import Product from "../models/Product.js";
 import { ApiError, asyncHandler } from "../utils/errors.js";
 
+function getRequestShopId(req) {
+  const shopId = String(req?.shopId || req?.auth?.shopId || "").trim();
+  if (!shopId) {
+    throw new ApiError(401, "Shop context is required");
+  }
+
+  return shopId;
+}
+
 function parseNumber(value, fallback = 0) {
   const numericValue = Number(value);
   return Number.isFinite(numericValue) ? numericValue : fallback;
@@ -54,6 +63,7 @@ function buildLooseBarcodeRegex(normalizedBarcode) {
 }
 
 export const addProduct = asyncHandler(async (req, res) => {
+  const shopId = getRequestShopId(req);
   const { name, price, stock, barcode, category } = req.body;
   const normalizedBarcode = normalizeBarcodeValue(barcode);
 
@@ -72,7 +82,7 @@ export const addProduct = asyncHandler(async (req, res) => {
     throw new ApiError(400, "stock must be a valid non-negative number");
   }
 
-  const existingProduct = await Product.findOne({ barcode: normalizedBarcode });
+  const existingProduct = await Product.findOne({ shopId, barcode: normalizedBarcode });
   if (existingProduct && existingProduct.isActive) {
     throw new ApiError(409, "A product with this barcode already exists");
   }
@@ -94,6 +104,7 @@ export const addProduct = asyncHandler(async (req, res) => {
   }
 
   const product = await Product.create({
+    shopId,
     name,
     price: normalizedPrice,
     stock: normalizedStock,
@@ -109,6 +120,7 @@ export const addProduct = asyncHandler(async (req, res) => {
 });
 
 export const getProducts = asyncHandler(async (req, res) => {
+  const shopId = getRequestShopId(req);
   const {
     search = "",
     barcode,
@@ -119,7 +131,7 @@ export const getProducts = asyncHandler(async (req, res) => {
     limit = 100,
   } = req.query;
 
-  const query = {};
+  const query = { shopId };
 
   if (includeInactive !== "true") {
     query.isActive = true;
@@ -160,6 +172,7 @@ export const getProducts = asyncHandler(async (req, res) => {
 });
 
 export const getProductByBarcode = asyncHandler(async (req, res) => {
+  const shopId = getRequestShopId(req);
   const barcode = normalizeBarcodeValue(req.params.barcode);
   if (!barcode) {
     throw new ApiError(400, "barcode parameter is required");
@@ -169,6 +182,7 @@ export const getProductByBarcode = asyncHandler(async (req, res) => {
   const exactCandidates = Array.from(new Set([barcode, ...normalizedCandidates]));
 
   let product = await Product.findOne({
+    shopId,
     barcode: { $in: exactCandidates },
     isActive: true,
   });
@@ -181,6 +195,7 @@ export const getProductByBarcode = asyncHandler(async (req, res) => {
 
       const looseBarcodeRegex = buildLooseBarcodeRegex(candidate);
       product = await Product.findOne({
+        shopId,
         barcode: looseBarcodeRegex,
         isActive: true,
       });
@@ -202,10 +217,11 @@ export const getProductByBarcode = asyncHandler(async (req, res) => {
 });
 
 export const updateProduct = asyncHandler(async (req, res) => {
+  const shopId = getRequestShopId(req);
   const { id } = req.params;
   const { name, price, stock, barcode, category, isActive } = req.body;
 
-  const product = await Product.findById(id);
+  const product = await Product.findOne({ _id: id, shopId });
 
   if (!product) {
     throw new ApiError(404, "Product not found");
@@ -219,7 +235,7 @@ export const updateProduct = asyncHandler(async (req, res) => {
     }
 
     if (normalizedBarcode !== product.barcode) {
-      const exists = await Product.findOne({ barcode: normalizedBarcode, _id: { $ne: id } });
+      const exists = await Product.findOne({ shopId, barcode: normalizedBarcode, _id: { $ne: id } });
       if (exists) {
         throw new ApiError(409, "Another product already uses this barcode");
       }
@@ -257,9 +273,10 @@ export const updateProduct = asyncHandler(async (req, res) => {
 });
 
 export const deleteProduct = asyncHandler(async (req, res) => {
+  const shopId = getRequestShopId(req);
   const { id } = req.params;
 
-  const product = await Product.findById(id);
+  const product = await Product.findOne({ _id: id, shopId });
 
   if (!product) {
     throw new ApiError(404, "Product not found");
@@ -275,10 +292,11 @@ export const deleteProduct = asyncHandler(async (req, res) => {
 });
 
 export const updateStock = asyncHandler(async (req, res) => {
+  const shopId = getRequestShopId(req);
   const { id } = req.params;
   const { quantity, mode = "add", referenceType = "manual", note = "" } = req.body;
 
-  const product = await Product.findById(id);
+  const product = await Product.findOne({ _id: id, shopId });
 
   if (!product || !product.isActive) {
     throw new ApiError(404, "Active product not found");
@@ -309,6 +327,7 @@ export const updateStock = asyncHandler(async (req, res) => {
   await product.save();
 
   await InventoryLog.create({
+    shopId,
     productId: product._id,
     type: mode,
     quantity: mode === "set" ? Math.abs(newStock - previousStock) : normalizedQty,
