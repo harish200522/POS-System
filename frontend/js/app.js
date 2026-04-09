@@ -71,6 +71,7 @@ const elements = {
   quickAddProductButton: document.getElementById("quick-add-product"),
   quickSyncButton: document.getElementById("quick-sync"),
   themeToggleButton: document.getElementById("theme-toggle-button"),
+  installAppButton: document.getElementById("install-app-button"),
   appNav: document.getElementById("app-nav"),
   appMain: document.getElementById("app-main"),
   tabButtons: Array.from(document.querySelectorAll("[data-tab]")),
@@ -273,6 +274,7 @@ let lastCartHighlightProductId = "";
 let cartHighlightTimeoutId = null;
 let eventsBound = false;
 let paymentQrMarkedForRemoval = false;
+let deferredInstallPrompt = null;
 
 const ROLE_TAB_ACCESS = {
   admin: ["pos", "admin", "dashboard", "history"],
@@ -399,6 +401,72 @@ function sanitizeActionUrl(value, fallback = "#") {
 
 function isMobileViewport() {
   return window.matchMedia("(max-width: 768px)").matches;
+}
+
+function isStandaloneDisplayMode() {
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+
+function isIosDevice() {
+  const userAgent = String(window.navigator.userAgent || "");
+  const platform = String(window.navigator.platform || "");
+
+  return /iphone|ipad|ipod/i.test(userAgent) || (platform === "MacIntel" && window.navigator.maxTouchPoints > 1);
+}
+
+function shouldShowInstallHelp() {
+  return !isStandaloneDisplayMode() && isIosDevice();
+}
+
+function updateInstallButtonVisibility() {
+  if (!elements.installAppButton) {
+    return;
+  }
+
+  const shouldShowButton = !isStandaloneDisplayMode() && (Boolean(deferredInstallPrompt) || shouldShowInstallHelp());
+  elements.installAppButton.classList.toggle("hidden", !shouldShowButton);
+
+  if (shouldShowButton) {
+    elements.installAppButton.textContent = deferredInstallPrompt ? "Install App" : "Add to Home Screen";
+  }
+}
+
+async function handleInstallAppRequest() {
+  if (isStandaloneDisplayMode()) {
+    showToast("App is already installed.", "success");
+    updateInstallButtonVisibility();
+    return;
+  }
+
+  if (deferredInstallPrompt) {
+    const installEvent = deferredInstallPrompt;
+    deferredInstallPrompt = null;
+
+    try {
+      await installEvent.prompt();
+      const choice = await installEvent.userChoice;
+
+      if (choice?.outcome === "accepted") {
+        showToast("Install accepted. Check your home screen.", "success");
+      } else {
+        showToast("Install dismissed. You can try again.", "info");
+      }
+    } catch (error) {
+      console.error("[PWA] Install prompt failed:", error);
+      showToast("Unable to trigger install right now.", "warning");
+    }
+
+    updateInstallButtonVisibility();
+    updateAdminOnlyHeaderControls();
+    return;
+  }
+
+  if (shouldShowInstallHelp()) {
+    showToast("On iPhone: tap Share and choose Add to Home Screen.", "info");
+    return;
+  }
+
+  showToast("Install option is not available yet. Reload and try again.", "warning");
 }
 
 function normalizeTheme(theme) {
@@ -1894,12 +1962,21 @@ function updateAdminOnlyHeaderControls() {
     elements.quickActionsToolbar.classList.toggle("hidden", !hasVisibleQuickAction);
   }
 
+  if (elements.installAppButton) {
+    updateInstallButtonVisibility();
+  }
+
   if (elements.headerActionRow) {
     const hasVisibleThemeButton =
       Boolean(elements.themeToggleButton) && !elements.themeToggleButton.classList.contains("hidden");
     const hasVisibleQuickToolbar =
       Boolean(elements.quickActionsToolbar) && !elements.quickActionsToolbar.classList.contains("hidden");
-    elements.headerActionRow.classList.toggle("hidden", !(hasVisibleThemeButton || hasVisibleQuickToolbar));
+    const hasVisibleInstallButton =
+      Boolean(elements.installAppButton) && !elements.installAppButton.classList.contains("hidden");
+    elements.headerActionRow.classList.toggle(
+      "hidden",
+      !(hasVisibleThemeButton || hasVisibleQuickToolbar || hasVisibleInstallButton)
+    );
   }
 }
 
@@ -5217,6 +5294,12 @@ function bindEvents() {
     });
   }
 
+  if (elements.installAppButton) {
+    elements.installAppButton.addEventListener("click", () => {
+      void handleInstallAppRequest();
+    });
+  }
+
   elements.searchInput.addEventListener("input", renderProductResults);
   elements.manualBarcodeButton.addEventListener("click", promptManualBarcodeEntry);
 
@@ -5973,5 +6056,28 @@ function registerServiceWorker() {
   });
 }
 
+function registerInstallPromptHandlers() {
+  if (!elements.installAppButton) {
+    return;
+  }
+
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    updateInstallButtonVisibility();
+    updateAdminOnlyHeaderControls();
+  });
+
+  window.addEventListener("appinstalled", () => {
+    deferredInstallPrompt = null;
+    updateInstallButtonVisibility();
+    updateAdminOnlyHeaderControls();
+    showToast("App installed successfully.", "success");
+  });
+
+  updateInstallButtonVisibility();
+}
+
 registerServiceWorker();
+registerInstallPromptHandlers();
 init();
