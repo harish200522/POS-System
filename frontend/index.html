@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0f7c8f" />
+    <meta name="theme-color" content="#08133a" />
     <title>CounterCraft POS</title>
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png" />
@@ -26,7 +26,7 @@
     />
     <link
       rel="stylesheet"
-      href="./assets/styles.css?v=20260408-1"
+      href="./assets/styles.css?v=20260409-4"
     />
   </head>
   <body class="app-body min-h-screen bg-dune-100 text-slate-900">
@@ -959,38 +959,41 @@
         >
           Sign In to CounterCraft
         </h3>
-        <p class="section-subtitle mt-1">
-          Login with your admin or cashier account. For first-time setup, fill shop details and use Create First Admin.
-        </p>
 
         <form
           id="auth-form"
-          class="mt-4 space-y-3"
+          class="mt-4 space-y-3 auth-form-layout"
         >
-          <label class="text-sm font-medium text-slate-700">
-            Username
-            <input
-              id="auth-username"
-              type="text"
-              autocomplete="username"
-              class="field-input mt-1"
-              required
-            />
-          </label>
+          <section class="auth-login-panel">
+            <p class="auth-login-copy">Login with your admin or cashier account.</p>
 
-          <label class="text-sm font-medium text-slate-700">
-            Password
-            <input
-              id="auth-password"
-              type="password"
-              autocomplete="current-password"
-              class="field-input mt-1"
-              required
-            />
-          </label>
+            <label class="text-sm font-medium text-slate-700">
+              Username
+              <input
+                id="auth-username"
+                type="text"
+                autocomplete="username"
+                class="field-input mt-1"
+                required
+              />
+            </label>
 
-          <div class="rounded-2xl border border-dune-200 bg-dune-50 p-3">
-            <p class="text-xs font-semibold uppercase tracking-[0.11em] text-slate-600">New Shop Setup</p>
+            <label class="text-sm font-medium text-slate-700">
+              Password
+              <input
+                id="auth-password"
+                type="password"
+                autocomplete="current-password"
+                class="field-input mt-1"
+                required
+              />
+            </label>
+
+            <p class="auth-forgot-note">Forgot password?</p>
+          </section>
+
+          <section class="auth-shop-panel rounded-2xl border border-dune-200 bg-dune-50 p-3">
+            <p class="auth-shop-title text-xs font-semibold uppercase tracking-[0.11em] text-slate-600">New Shop Setup</p>
             <p class="mt-1 text-xs text-slate-500">Required only when creating the first admin account.</p>
 
             <div class="mt-3 grid gap-3 md:grid-cols-2">
@@ -1038,7 +1041,7 @@
                 />
               </label>
             </div>
-          </div>
+          </section>
 
           <p
             id="auth-error"
