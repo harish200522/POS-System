@@ -479,13 +479,19 @@ function resolveInitialTheme() {
     return normalizeTheme(storedTheme);
   }
 
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  // Keep current visual direction as default while still allowing explicit light mode toggle.
+  return "dark";
 }
 
 function applyTheme(theme, { persist = false } = {}) {
   const normalizedTheme = normalizeTheme(theme);
   state.theme = normalizedTheme;
   document.documentElement.setAttribute("data-theme", normalizedTheme);
+
+  const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+  if (themeColorMeta) {
+    themeColorMeta.setAttribute("content", normalizedTheme === "dark" ? "#08133a" : "#edf1f5");
+  }
 
   if (elements.themeToggleButton) {
     const isDark = normalizedTheme === "dark";

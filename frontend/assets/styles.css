@@ -4201,3 +4201,234 @@ html[data-theme="dark"] .text-slate-500,
     grid-template-columns: 1fr;
   }
 }
+
+/* Theme Fix: Preserve current dark style and provide a distinct light mode */
+html[data-theme="light"] {
+  --bg-base: #edf1f5;
+  --bg-secondary: #f7f8fb;
+  --surface: #ffffff;
+  --surface-solid: #ffffff;
+  --surface-soft: #f8faff;
+  --border: rgba(148, 163, 184, 0.4);
+  --text-main: #0f172a;
+  --text-soft: #334155;
+  --text-muted: #64748b;
+  --primary: #0f7c8f;
+  --primary-strong: #1f6de2;
+  --primary-soft: rgba(31, 109, 226, 0.14);
+  --accent: #1f6de2;
+  --ring: rgba(31, 109, 226, 0.2);
+  --ring-strong: rgba(31, 109, 226, 0.46);
+}
+
+html[data-theme="light"] body {
+  color: var(--text-main);
+  background: linear-gradient(180deg, #f8f9fc 0%, var(--bg-base) 100%);
+}
+
+html[data-theme="light"] .mesh-bg {
+  background:
+    radial-gradient(circle at 10% 8%, rgba(59, 130, 246, 0.12), transparent 34%),
+    radial-gradient(circle at 84% 12%, rgba(14, 165, 233, 0.1), transparent 36%),
+    linear-gradient(160deg, #f9fafc, #eef2f8 52%, #e9edf3);
+}
+
+html[data-theme="light"] .grain-overlay {
+  opacity: 0.08;
+}
+
+html[data-theme="light"] .surface {
+  border-color: color-mix(in srgb, #cbd5e1 78%, transparent);
+  background: #ffffff;
+  box-shadow: 0 24px 46px -34px rgba(15, 23, 42, 0.28);
+}
+
+html[data-theme="light"] .app-header::before,
+html[data-theme="light"] .app-header::after {
+  display: none;
+}
+
+html[data-theme="light"] .status-badge {
+  border-color: #d8dee8;
+  background: #f4f7fb;
+  color: #4b5563;
+}
+
+html[data-theme="light"] .badge-online {
+  border-color: #b8e6c5;
+  background: #e8f9ee;
+  color: #1f8f49;
+}
+
+html[data-theme="light"] .badge-offline,
+html[data-theme="light"] .badge-attention {
+  border-color: #f2c2c9;
+  background: #fff1f3;
+  color: #b42344;
+}
+
+html[data-theme="light"] .field-input {
+  border-color: #c7d0dc;
+  background: #ffffff;
+  color: #111827;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+html[data-theme="light"] .field-input::placeholder {
+  color: #8b95a4;
+}
+
+html[data-theme="light"] .secondary-btn,
+html[data-theme="light"] .payment-btn,
+html[data-theme="light"] .range-btn,
+html[data-theme="light"] .table-btn,
+html[data-theme="light"] .theme-toggle-btn,
+html[data-theme="light"] .link-btn {
+  border-color: #cbd4df;
+  color: #334155;
+  background: #ffffff;
+}
+
+html[data-theme="light"] .secondary-btn:hover,
+html[data-theme="light"] .payment-btn:hover,
+html[data-theme="light"] .range-btn:hover,
+html[data-theme="light"] .table-btn:hover,
+html[data-theme="light"] .theme-toggle-btn:hover {
+  border-color: #7fa0d8;
+  background: #f6f9ff;
+}
+
+html[data-theme="light"] .payment-active,
+html[data-theme="light"] .range-active {
+  border-color: #6f97d8;
+  color: #0f4cad;
+  background: #edf4ff;
+}
+
+html[data-theme="light"] .app-nav {
+  border-color: #d7dee8;
+  background: #ffffff;
+  box-shadow: 0 16px 30px -24px rgba(15, 23, 42, 0.35);
+}
+
+html[data-theme="light"] .tab-btn {
+  border-color: #d4dbe5;
+  color: #667085;
+  background: #ffffff;
+}
+
+html[data-theme="light"] .tab-btn:hover {
+  border-color: #9bb2d6;
+  background: #f6f9ff;
+}
+
+html[data-theme="light"] .tab-active {
+  color: #ffffff;
+  background: linear-gradient(125deg, #1f6de2, #1959bf);
+}
+
+html[data-theme="light"] .product-card,
+html[data-theme="light"] .cart-row,
+html[data-theme="light"] .table-wrap,
+html[data-theme="light"] .report-toolbar,
+html[data-theme="light"] .payment-row,
+html[data-theme="light"] .top-product-row,
+html[data-theme="light"] .trend-row,
+html[data-theme="light"] .insight-chip,
+html[data-theme="light"] .checkout-summary,
+html[data-theme="light"] .pos-runtime-strip,
+html[data-theme="light"] .dashboard-card {
+  border-color: #d7dee8;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+html[data-theme="light"] .checkout-summary {
+  background: #f8fbff;
+}
+
+html[data-theme="light"] .responsive-table thead th,
+html[data-theme="light"] .history-table thead th,
+html[data-theme="light"] .inventory-table thead th {
+  background: #f5f7fb;
+}
+
+html[data-theme="light"] .responsive-table tbody tr:not(.table-empty-row):nth-child(even) {
+  background: #fafbfd;
+}
+
+html[data-theme="light"] .responsive-table tbody tr:not(.table-empty-row):hover {
+  background: #eef4ff;
+}
+
+html[data-theme="light"] .modal {
+  background: rgba(15, 23, 42, 0.3);
+}
+
+html[data-theme="light"] .modal-card {
+  border-color: #d7dee8;
+  background: #ffffff;
+  box-shadow: 0 28px 56px -34px rgba(15, 23, 42, 0.46);
+}
+
+html[data-theme="light"] .auth-modal-card .rounded-2xl,
+html[data-theme="light"] .auth-login-panel,
+html[data-theme="light"] .auth-shop-panel {
+  border-color: #d7dee8;
+  background: #f8fafc;
+}
+
+html[data-theme="light"] #auth-modal .section-subtitle,
+html[data-theme="light"] #auth-modal .auth-login-copy,
+html[data-theme="light"] #auth-modal .auth-forgot-note,
+html[data-theme="light"] #auth-modal .auth-shop-title {
+  color: #334155;
+}
+
+html[data-theme="light"] #panel-dashboard .report-toolbar,
+html[data-theme="light"] #panel-history .report-toolbar {
+  border-color: #d7dee8;
+  background: #f8fafc;
+}
+
+html[data-theme="light"] #panel-dashboard .report-filter-field,
+html[data-theme="light"] #panel-history .report-filter-field {
+  color: #64748b;
+}
+
+html[data-theme="light"] #panel-dashboard .report-field-input,
+html[data-theme="light"] #panel-history .report-field-input {
+  border-color: #c7d0dc;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+html[data-theme="light"] .dashboard-card-icon {
+  color: #1f4c8e;
+  background: #eaf2ff;
+  box-shadow: inset 0 0 0 1px rgba(125, 165, 230, 0.4);
+}
+
+html[data-theme="light"] .dashboard-card-trend-up {
+  color: #166534;
+  background: rgba(220, 252, 231, 0.86);
+}
+
+html[data-theme="light"] .dashboard-card-trend-down {
+  color: #991b1b;
+  background: rgba(254, 226, 226, 0.86);
+}
+
+html[data-theme="light"] .dashboard-card-trend-neutral {
+  color: #475569;
+  background: rgba(241, 245, 249, 0.92);
+}
+
+html[data-theme="light"] .bg-dune-50,
+html[data-theme="light"] .bg-amber-50 {
+  background: #fff8dc !important;
+}
+
+html[data-theme="light"] .text-amber-800 {
+  color: #8a5a00 !important;
+}
