@@ -248,7 +248,7 @@
                   type="button"
                   class="action-btn pos-scan-btn"
                 >
-                  Scan Barcode
+                  Scan Product
                 </button>
               </div>
 
@@ -455,7 +455,7 @@
               >
                 Add Product
               </h2>
-              <p class="section-subtitle">Create or edit products with price, stock, and barcode.</p>
+              <p class="section-subtitle">Create or edit products with price, stock, barcode, and product QR.</p>
 
               <form
                 id="product-form"
@@ -470,15 +470,69 @@
                     class="field-input mt-1"
                   />
                 </label>
-                <label class="text-sm font-medium text-slate-700">
-                  Barcode
-                  <input
-                    name="barcode"
-                    required
-                    type="text"
-                    class="field-input mt-1"
-                  />
-                </label>
+                <div class="product-barcode-grid">
+                  <label class="text-sm font-medium text-slate-700 product-barcode-field">
+                    Barcode
+                    <input
+                      name="barcode"
+                      type="text"
+                      class="field-input mt-1"
+                      placeholder="Leave blank to auto-generate"
+                    />
+                  </label>
+                  <button
+                    id="product-qr-generate"
+                    class="secondary-btn product-qr-generate-btn"
+                    type="button"
+                  >
+                    Generate QR
+                  </button>
+                </div>
+
+                <p class="form-helper-text">Barcode is your primary identifier. If left blank, one is auto-generated.</p>
+
+                <article
+                  id="product-qr-preview-card"
+                  class="product-qr-card"
+                >
+                  <div class="product-qr-preview-head">
+                    <p class="product-qr-preview-title">QR Preview</p>
+                    <p
+                      id="product-qr-meta"
+                      class="product-qr-meta"
+                    >
+                      Generate QR after entering product name and price.
+                    </p>
+                  </div>
+
+                  <div class="product-qr-canvas-wrap">
+                    <canvas
+                      id="product-qr-canvas"
+                      width="220"
+                      height="220"
+                      aria-label="Product QR preview"
+                    ></canvas>
+                  </div>
+
+                  <div class="product-qr-actions">
+                    <button
+                      id="product-qr-download"
+                      class="secondary-btn"
+                      type="button"
+                      disabled
+                    >
+                      Download QR
+                    </button>
+                    <button
+                      id="product-qr-print"
+                      class="secondary-btn"
+                      type="button"
+                      disabled
+                    >
+                      Print QR
+                    </button>
+                  </div>
+                </article>
                 <label class="text-sm font-medium text-slate-700">
                   Category
                   <input
@@ -1088,7 +1142,7 @@
             id="scanner-title"
             class="section-title"
           >
-            Scan Barcode
+            Scan Product
           </h3>
           <div class="scanner-head-actions">
             <button
@@ -1115,10 +1169,10 @@
             </button>
           </div>
         </div>
-        <p class="section-subtitle mt-1">Align barcode within the box and hold steady.</p>
+        <p class="section-subtitle mt-1">Align barcode or QR within the box and hold steady.</p>
 
         <div class="scanner-instruction-list">
-          <p>Keep barcode centered and avoid reflections for faster scans.</p>
+          <p>Keep barcode or QR centered and avoid reflections for faster scans.</p>
           <p>Use Enter Barcode if camera access is unavailable.</p>
         </div>
 

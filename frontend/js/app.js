@@ -108,6 +108,12 @@ const elements = {
   productFormTitle: document.getElementById("product-form-title"),
   productFormSubmit: document.getElementById("product-form-submit"),
   productFormCancel: document.getElementById("product-form-cancel"),
+  productQrGenerateButton: document.getElementById("product-qr-generate"),
+  productQrDownloadButton: document.getElementById("product-qr-download"),
+  productQrPrintButton: document.getElementById("product-qr-print"),
+  productQrCanvas: document.getElementById("product-qr-canvas"),
+  productQrMeta: document.getElementById("product-qr-meta"),
+  productQrPreviewCard: document.getElementById("product-qr-preview-card"),
   productTableBody: document.getElementById("product-table-body"),
   inventorySearchInput: document.getElementById("inventory-search-input"),
   inventoryStatusFilter: document.getElementById("inventory-status-filter"),
@@ -252,6 +258,10 @@ const UPI_CONFIG = {
   defaultShopName: "Shop",
   sessionTimeoutMs: 2 * 60 * 1000,
 };
+const PRODUCT_QR_CONFIG = {
+  canvasSize: 220,
+  barcodePrefix: "CC",
+};
 
 const THEME_STORAGE_KEY = "countercraft_theme";
 
@@ -275,6 +285,7 @@ let cartHighlightTimeoutId = null;
 let eventsBound = false;
 let paymentQrMarkedForRemoval = false;
 let deferredInstallPrompt = null;
+let latestProductQrPayload = null;
 
 const ROLE_TAB_ACCESS = {
   admin: ["pos", "admin", "dashboard", "history"],
@@ -4435,7 +4446,426 @@ async function handleHistoryReportExport(format) {
   }
 }
 
+function getProductFormBarcodeValue() {
+  return String(elements.productForm?.barcode?.value || "").trim();
+}
+
+function setProductQrMeta(message) {
+  if (!elements.productQrMeta) {
+    return;
+  }
+
+  elements.productQrMeta.textContent = String(message || "").trim();
+}
+
+function setProductQrActionButtonsEnabled(isEnabled) {
+  if (elements.productQrDownloadButton) {
+    elements.productQrDownloadButton.disabled = !isEnabled;
+  }
+
+  if (elements.productQrPrintButton) {
+    elements.productQrPrintButton.disabled = !isEnabled;
+  }
+}
+
+function getProductQrCanvasContext() {
+  const canvas = elements.productQrCanvas;
+  if (!(canvas instanceof HTMLCanvasElement)) {
+    return null;
+  }
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return null;
+  }
+
+  return { canvas, context };
+}
+
+function drawProductQrPlaceholder(message = "Generate QR Preview") {
+  const canvasContext = getProductQrCanvasContext();
+  if (!canvasContext) {
+    return;
+  }
+
+  const { canvas, context } = canvasContext;
+  const size = PRODUCT_QR_CONFIG.canvasSize;
+  canvas.width = size;
+  canvas.height = size;
+
+  context.clearRect(0, 0, size, size);
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, size, size);
+  context.strokeStyle = "#d4dbe8";
+  context.lineWidth = 1;
+  context.strokeRect(0.5, 0.5, size - 1, size - 1);
+
+  context.fillStyle = "#64748b";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.font = "600 13px 'Plus Jakarta Sans', sans-serif";
+
+  const lines = String(message || "")
+    .trim()
+    .split(/\s+/)
+    .reduce((acc, token) => {
+      if (!acc.length) {
+        acc.push(token);
+        return acc;
+      }
+
+      const currentLine = acc[acc.length - 1];
+      if (`${currentLine} ${token}`.length <= 20) {
+        acc[acc.length - 1] = `${currentLine} ${token}`;
+      } else {
+        acc.push(token);
+      }
+
+      return acc;
+    }, []);
+
+  const safeLines = lines.length ? lines.slice(0, 3) : ["Generate QR Preview"];
+  const lineHeight = 18;
+  const startY = size / 2 - ((safeLines.length - 1) * lineHeight) / 2;
+
+  safeLines.forEach((line, index) => {
+    context.fillText(line, size / 2, startY + index * lineHeight);
+  });
+}
+
+function sanitizeQrFileNamePart(value, fallback = "product") {
+  const sanitizedValue = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  return sanitizedValue || fallback;
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function isBarcodeDuplicate(barcode, { excludeProductId = state.selectedProductId } = {}) {
+  const normalizedBarcode = normalizeBarcode(barcode);
+  if (!normalizedBarcode) {
+    return false;
+  }
+
+  const normalizedExcludedId = String(excludeProductId || "");
+
+  return state.products.some((product) => {
+    if (!product) {
+      return false;
+    }
+
+    if (normalizedExcludedId && String(product._id || "") === normalizedExcludedId) {
+      return false;
+    }
+
+    return normalizeBarcode(product.barcode) === normalizedBarcode;
+  });
+}
+
+function buildGeneratedBarcodeCandidate() {
+  const timePart = Date.now().toString(36).toUpperCase();
+  const randomPart = Math.random().toString(36).slice(2, 7).toUpperCase();
+  return `${PRODUCT_QR_CONFIG.barcodePrefix}${timePart}${randomPart}`;
+}
+
+function generateUniqueProductBarcode({ excludeProductId = state.selectedProductId } = {}) {
+  for (let attempt = 0; attempt < 28; attempt += 1) {
+    const candidate = buildGeneratedBarcodeCandidate();
+    if (!isBarcodeDuplicate(candidate, { excludeProductId })) {
+      return candidate;
+    }
+  }
+
+  return "";
+}
+
+function ensureProductFormBarcode({ showMessage = false } = {}) {
+  const existingBarcode = getProductFormBarcodeValue();
+  if (existingBarcode) {
+    return existingBarcode;
+  }
+
+  const generatedBarcode = generateUniqueProductBarcode();
+  if (!generatedBarcode) {
+    return "";
+  }
+
+  elements.productForm.barcode.value = generatedBarcode;
+
+  if (showMessage) {
+    showToast(`Barcode auto-generated: ${generatedBarcode}`, "info");
+  }
+
+  return generatedBarcode;
+}
+
+function resetProductQrPreview() {
+  latestProductQrPayload = null;
+  setProductQrActionButtonsEnabled(false);
+  drawProductQrPlaceholder("Generate QR Preview");
+  setProductQrMeta("Generate QR after entering product name and price.");
+}
+
+function markProductQrStale() {
+  if (!latestProductQrPayload) {
+    return;
+  }
+
+  latestProductQrPayload = null;
+  setProductQrActionButtonsEnabled(false);
+  drawProductQrPlaceholder("Generate QR Preview");
+  setProductQrMeta("Form changed. Generate QR again.");
+}
+
+function loadImageElement(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Unable to render generated QR image"));
+
+    image.src = src;
+  });
+}
+
+async function renderQrTextToProductCanvas(qrText) {
+  const canvasContext = getProductQrCanvasContext();
+  if (!canvasContext) {
+    throw new Error("QR preview canvas is unavailable");
+  }
+
+  const QRCode = await ensureQRCodeLoaded();
+  if (!QRCode) {
+    throw new Error("QR library unavailable. Check network and retry.");
+  }
+
+  const { canvas, context } = canvasContext;
+  const size = PRODUCT_QR_CONFIG.canvasSize;
+  canvas.width = size;
+  canvas.height = size;
+
+  const renderHost = document.createElement("div");
+  renderHost.style.position = "fixed";
+  renderHost.style.left = "-10000px";
+  renderHost.style.top = "-10000px";
+  renderHost.style.width = "1px";
+  renderHost.style.height = "1px";
+  document.body.appendChild(renderHost);
+
+  try {
+    new QRCode(renderHost, {
+      text: String(qrText || ""),
+      width: size,
+      height: size,
+      colorDark: "#0f172a",
+      colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.M,
+    });
+
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, 40);
+    });
+
+    context.clearRect(0, 0, size, size);
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, size, size);
+
+    const generatedCanvas = renderHost.querySelector("canvas");
+    if (generatedCanvas instanceof HTMLCanvasElement) {
+      context.drawImage(generatedCanvas, 0, 0, size, size);
+      return canvas.toDataURL("image/png");
+    }
+
+    const generatedImage = renderHost.querySelector("img");
+    if (generatedImage?.src) {
+      const loadedImage = await loadImageElement(generatedImage.src);
+      context.drawImage(loadedImage, 0, 0, size, size);
+      return canvas.toDataURL("image/png");
+    }
+
+    throw new Error("Unable to generate QR preview");
+  } finally {
+    renderHost.remove();
+  }
+}
+
+async function generateProductQrCodeFromForm() {
+  const productName = String(elements.productForm?.name?.value || "").trim();
+  const productPrice = asNumber(elements.productForm?.price?.value, Number.NaN);
+
+  if (!productName || !Number.isFinite(productPrice) || productPrice < 0) {
+    showToast("Enter product name and valid price before generating QR", "warning");
+    return;
+  }
+
+  let barcode = getProductFormBarcodeValue();
+  if (!barcode) {
+    barcode = ensureProductFormBarcode({ showMessage: true });
+  }
+
+  if (!barcode) {
+    showToast("Unable to generate barcode for QR", "error");
+    return;
+  }
+
+  if (isBarcodeDuplicate(barcode)) {
+    showToast("Another product already uses this barcode", "error");
+    return;
+  }
+
+  const payload = {
+    name: productName,
+    price: Number(productPrice.toFixed(2)),
+    barcode,
+  };
+
+  try {
+    const pngDataUrl = await renderQrTextToProductCanvas(JSON.stringify(payload));
+
+    latestProductQrPayload = {
+      ...payload,
+      pngDataUrl,
+    };
+
+    setProductQrActionButtonsEnabled(true);
+    setProductQrMeta(`QR ready for ${payload.name} • ${payload.barcode}`);
+    showToast("Product QR generated", "success");
+  } catch (error) {
+    latestProductQrPayload = null;
+    setProductQrActionButtonsEnabled(false);
+    drawProductQrPlaceholder("QR unavailable");
+    setProductQrMeta("Unable to generate QR right now. Please retry.");
+    showToast(error.message || "Unable to generate product QR", "error");
+  }
+}
+
+function downloadProductQrCode() {
+  if (!latestProductQrPayload?.pngDataUrl) {
+    showToast("Generate QR before downloading", "warning");
+    return;
+  }
+
+  const fileName = `${sanitizeQrFileNamePart(latestProductQrPayload.name)}_qr.png`;
+  const downloadLink = document.createElement("a");
+  downloadLink.href = latestProductQrPayload.pngDataUrl;
+  downloadLink.download = fileName;
+  document.body.appendChild(downloadLink);
+  downloadLink.click();
+  downloadLink.remove();
+}
+
+function printProductQrCode() {
+  if (!latestProductQrPayload?.pngDataUrl) {
+    showToast("Generate QR before printing", "warning");
+    return;
+  }
+
+  const printWindow = window.open("", "_blank", "noopener,noreferrer,width=460,height=640");
+  if (!printWindow) {
+    showToast("Enable pop-ups to print QR code", "warning");
+    return;
+  }
+
+  const productName = escapeHtml(latestProductQrPayload.name || "Product");
+  const productPrice = formatCurrency(latestProductQrPayload.price || 0);
+  const barcode = escapeHtml(latestProductQrPayload.barcode || "-");
+  const qrDataUrl = latestProductQrPayload.pngDataUrl;
+
+  printWindow.document.open();
+  printWindow.document.write(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Print Product QR</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: "Plus Jakarta Sans", sans-serif;
+        color: #0f172a;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        background: #f8fafc;
+      }
+      .print-card {
+        width: min(340px, 92vw);
+        border: 1px solid #cbd5e1;
+        border-radius: 16px;
+        background: #ffffff;
+        padding: 18px;
+      }
+      h1 {
+        margin: 0 0 6px;
+        font-size: 20px;
+      }
+      p {
+        margin: 0;
+        color: #334155;
+        font-size: 14px;
+      }
+      .meta {
+        margin-top: 4px;
+      }
+      img {
+        width: 100%;
+        margin-top: 16px;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        background: #ffffff;
+      }
+      @media print {
+        body {
+          min-height: auto;
+          background: #ffffff;
+        }
+        .print-card {
+          width: 100%;
+          border: none;
+          border-radius: 0;
+          padding: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <article class="print-card">
+      <h1>${productName}</h1>
+      <p>Price: ${productPrice}</p>
+      <p class="meta">Barcode: ${barcode}</p>
+      <img src="${qrDataUrl}" alt="Product QR" />
+    </article>
+  </body>
+</html>`);
+  printWindow.document.close();
+
+  printWindow.onload = () => {
+    printWindow.focus();
+    printWindow.print();
+  };
+
+  printWindow.addEventListener(
+    "afterprint",
+    () => {
+      printWindow.close();
+    },
+    { once: true }
+  );
+}
+
 function resetProductForm() {
+  resetProductQrPreview();
   state.selectedProductId = null;
   elements.productForm.reset();
   elements.productFormTitle.textContent = "Add Product";
@@ -4444,6 +4874,7 @@ function resetProductForm() {
 }
 
 function populateProductForm(product) {
+  resetProductQrPreview();
   state.selectedProductId = product._id;
   elements.productForm.name.value = product.name;
   elements.productForm.barcode.value = product.barcode;
@@ -4453,6 +4884,7 @@ function populateProductForm(product) {
   elements.productFormTitle.textContent = "Edit Product";
   elements.productFormSubmit.textContent = "Update Product";
   elements.productFormCancel.classList.remove("hidden");
+  setProductQrMeta("Generate QR to preview updated product code.");
 }
 
 function addToCart(product, quantity = 1) {
@@ -5052,75 +5484,345 @@ async function resolveProductByBarcode(code) {
   return null;
 }
 
-async function applyScannedBarcode(code, sourceLabel = "Scanned") {
-  const rawCode = String(code || "");
-  const normalizedCode = normalizeBarcode(rawCode);
-  const scannerSource = isScannerSourceLabel(sourceLabel);
-
-  logScannerDebug("Barcode captured", {
-    source: sourceLabel,
-    rawCode,
-    rawLength: rawCode.length,
-    normalizedCode,
-    normalizedLength: normalizedCode.length,
-  });
-
-  if (!normalizedCode) {
-    showToast("Product not found for scanned barcode", "warning");
-    return false;
+function parseLooseScanFields(rawText) {
+  const scanFields = {};
+  const value = String(rawText || "").trim();
+  if (!value) {
+    return scanFields;
   }
 
-  if (scannerSource && isScanBlocked(normalizedCode)) {
-    logScannerDebug("Scanner input ignored by cooldown/duplicate guard", {
-      source: sourceLabel,
-      normalizedCode,
-      normalizedLength: normalizedCode.length,
+  try {
+    const parsedUrl = new URL(value);
+    parsedUrl.searchParams.forEach((fieldValue, fieldKey) => {
+      const normalizedKey = String(fieldKey || "").trim().toLowerCase();
+      const normalizedValue = String(fieldValue || "").trim();
+
+      if (normalizedKey && normalizedValue && !scanFields[normalizedKey]) {
+        scanFields[normalizedKey] = normalizedValue;
+      }
     });
-    return false;
+  } catch (error) {
+    // Ignore URL parsing errors and continue with loose key-value parsing.
   }
 
-  if (scannerSource) {
-    activateScanGuard(normalizedCode);
-  }
-
-  elements.searchInput.value = normalizedCode;
-  renderProductResults();
-
-  const resolvedProduct = await resolveProductByBarcode(normalizedCode);
-  if (resolvedProduct) {
-    const dbCode = String(resolvedProduct.barcode || "").trim();
-
-    logScannerDebug("Barcode matched product", {
-      source: sourceLabel,
-      scannedCode: normalizedCode,
-      scannedLength: normalizedCode.length,
-      dbBarcode: dbCode,
-      dbBarcodeLength: dbCode.length,
-      productId: resolvedProduct._id,
-      productName: resolvedProduct.name,
-    });
-
-    const added = addToCart(resolvedProduct, 1);
-    if (!added) {
-      return false;
+  value.split(/[\n;&]+/).forEach((entry) => {
+    const segment = String(entry || "").trim();
+    if (!segment) {
+      return;
     }
 
-    renderProductTable();
-    showToast(
-      scannerSource ? `Product added: ${resolvedProduct.name}` : `${sourceLabel}: ${resolvedProduct.name}`,
-      "success"
+    const keyValueMatch = segment.match(/^([a-zA-Z0-9_-]{2,})\s*[:=]\s*(.+)$/);
+    if (!keyValueMatch) {
+      return;
+    }
+
+    const key = String(keyValueMatch[1] || "").trim().toLowerCase();
+    const fieldValue = String(keyValueMatch[2] || "").trim();
+
+    if (key && fieldValue && !scanFields[key]) {
+      scanFields[key] = fieldValue;
+    }
+  });
+
+  return scanFields;
+}
+
+function getFirstMatchingField(fields, candidateKeys = []) {
+  for (const candidateKey of candidateKeys) {
+    const key = String(candidateKey || "").toLowerCase();
+    const value = String(fields?.[key] || "").trim();
+    if (value) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
+function parseScannedPayload(payload = {}) {
+  const rawValue = String(payload.rawValue || payload.code || "").trim();
+  const formatLabel = String(payload.format || "").trim().toUpperCase();
+  const isQrFormat = formatLabel.includes("QR");
+  const barcodeSet = new Set();
+
+  const collectBarcode = (value) => {
+    const normalized = normalizeBarcode(value);
+    if (normalized.length >= KEYBOARD_WEDGE_CONFIG.minCodeLength) {
+      barcodeSet.add(normalized);
+    }
+  };
+
+  if (!isQrFormat) {
+    collectBarcode(payload.code);
+  }
+
+  let nameHint = "";
+  let priceHint = Number.NaN;
+
+  let parsedJson = null;
+  if (rawValue.startsWith("{") || rawValue.startsWith("[")) {
+    try {
+      parsedJson = JSON.parse(rawValue);
+    } catch (error) {
+      parsedJson = null;
+    }
+  }
+
+  const structuredPayload =
+    Array.isArray(parsedJson) && parsedJson.length > 0
+      ? parsedJson[0]
+      : parsedJson && typeof parsedJson === "object"
+        ? parsedJson
+        : null;
+
+  if (structuredPayload) {
+    collectBarcode(
+      structuredPayload.barcode ||
+        structuredPayload.code ||
+        structuredPayload.sku ||
+        structuredPayload.itemCode ||
+        structuredPayload.item_code
     );
-    return true;
-  } else {
-    logScannerDebug("No product matched scanned barcode", {
-      source: sourceLabel,
-      scannedCode: normalizedCode,
-      scannedLength: normalizedCode.length,
-      candidates: getBarcodeCandidates(normalizedCode),
+
+    nameHint = String(
+      structuredPayload.name ||
+        structuredPayload.productName ||
+        structuredPayload.product_name ||
+        structuredPayload.title ||
+        ""
+    ).trim();
+
+    priceHint = asNumber(
+      structuredPayload.price || structuredPayload.unitPrice || structuredPayload.unit_price || structuredPayload.amount,
+      Number.NaN
+    );
+  }
+
+  const looseFields = parseLooseScanFields(rawValue);
+
+  collectBarcode(
+    getFirstMatchingField(looseFields, [
+      "barcode",
+      "code",
+      "sku",
+      "itemcode",
+      "item_code",
+      "productcode",
+      "product_code",
+    ])
+  );
+
+  if (!nameHint) {
+    nameHint = getFirstMatchingField(looseFields, [
+      "name",
+      "product",
+      "productname",
+      "product_name",
+      "title",
+    ]);
+  }
+
+  if (!Number.isFinite(priceHint)) {
+    priceHint = asNumber(
+      getFirstMatchingField(looseFields, ["price", "mrp", "amount", "unitprice", "unit_price"]),
+      Number.NaN
+    );
+  }
+
+  if (!isQrFormat || isLikelyBarcodeValue(rawValue)) {
+    collectBarcode(rawValue);
+  }
+
+  if (!nameHint && rawValue && !isLikelyBarcodeValue(rawValue)) {
+    const cleanedText = rawValue.replace(/\s+/g, " ").trim();
+    if (cleanedText.length >= 2 && cleanedText.length <= 120) {
+      nameHint = cleanedText;
+    }
+  }
+
+  return {
+    rawValue,
+    formatLabel,
+    isQrFormat,
+    barcodeCandidates: Array.from(barcodeSet),
+    nameHint,
+    priceHint,
+  };
+}
+
+function findProductByNameHint(products, nameHint, { priceHint = Number.NaN } = {}) {
+  const normalizedName = String(nameHint || "").trim().toLowerCase();
+  if (!normalizedName) {
+    return null;
+  }
+
+  let bestProduct = null;
+  let bestScore = 0;
+
+  products
+    .filter((product) => product?.isActive !== false)
+    .forEach((product) => {
+      const productName = String(product?.name || "").trim().toLowerCase();
+      if (!productName) {
+        return;
+      }
+
+      let score = 0;
+      if (productName === normalizedName) {
+        score = 100;
+      } else if (productName.startsWith(normalizedName)) {
+        score = 84;
+      } else if (productName.includes(normalizedName) || normalizedName.includes(productName)) {
+        score = 72;
+      } else {
+        return;
+      }
+
+      if (Number.isFinite(priceHint)) {
+        const productPrice = asNumber(product?.price, 0);
+        const difference = Math.abs(productPrice - priceHint);
+
+        if (difference < 0.01) {
+          score += 18;
+        } else if (difference <= 1) {
+          score += 10;
+        } else if (difference <= 5) {
+          score += 4;
+        }
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestProduct = product;
+      }
     });
-    showToast("Product not found for scanned barcode", "warning");
+
+  return bestScore >= 72 ? bestProduct : null;
+}
+
+async function resolveProductByName(nameHint, { priceHint = Number.NaN } = {}) {
+  const localMatch = findProductByNameHint(state.products, nameHint, { priceHint });
+  if (localMatch) {
+    return localMatch;
+  }
+
+  if (!navigator.onLine) {
+    return null;
+  }
+
+  try {
+    const response = await api.getProducts({ search: nameHint, limit: 80 });
+    const remoteProducts = normalizeProductEntries(response?.data);
+    const remoteMatch = findProductByNameHint(remoteProducts, nameHint, { priceHint });
+
+    if (!remoteMatch) {
+      return null;
+    }
+
+    const existingIndex = state.products.findIndex((product) => product._id === remoteMatch._id);
+    if (existingIndex >= 0) {
+      state.products[existingIndex] = remoteMatch;
+    } else {
+      state.products.unshift(remoteMatch);
+    }
+
+    return remoteMatch;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function applyScannedPayload(payload = {}, sourceLabel = "Scanned") {
+  const scannerSource = isScannerSourceLabel(sourceLabel);
+  const parsedPayload = parseScannedPayload(payload);
+  const scanGuardValue =
+    parsedPayload.barcodeCandidates[0] ||
+    normalizeBarcode(parsedPayload.nameHint || parsedPayload.rawValue);
+
+  logScannerDebug("Scan payload captured", {
+    source: sourceLabel,
+    isQrFormat: parsedPayload.isQrFormat,
+    formatLabel: parsedPayload.formatLabel,
+    rawValue: parsedPayload.rawValue,
+    barcodeCandidates: parsedPayload.barcodeCandidates,
+    nameHint: parsedPayload.nameHint,
+    priceHint: parsedPayload.priceHint,
+  });
+
+  if (!scanGuardValue && !parsedPayload.nameHint) {
+    showToast("Invalid scan data. Use product barcode or product QR.", "warning");
     return false;
   }
+
+  if (scannerSource && isScanBlocked(scanGuardValue)) {
+    logScannerDebug("Scanner input ignored by cooldown/duplicate guard", {
+      source: sourceLabel,
+      scanGuardValue,
+    });
+    return false;
+  }
+
+  if (scannerSource && scanGuardValue) {
+    activateScanGuard(scanGuardValue);
+  }
+
+  const lookupSeed = parsedPayload.barcodeCandidates[0] || parsedPayload.nameHint || parsedPayload.rawValue;
+  if (lookupSeed) {
+    elements.searchInput.value = lookupSeed;
+    renderProductResults();
+  }
+
+  let resolvedProduct = null;
+
+  for (const barcodeCandidate of parsedPayload.barcodeCandidates) {
+    resolvedProduct = await resolveProductByBarcode(barcodeCandidate);
+    if (resolvedProduct) {
+      break;
+    }
+  }
+
+  if (!resolvedProduct && parsedPayload.nameHint) {
+    resolvedProduct = await resolveProductByName(parsedPayload.nameHint, {
+      priceHint: parsedPayload.priceHint,
+    });
+  }
+
+  if (!resolvedProduct) {
+    const noCandidateData =
+      !parsedPayload.barcodeCandidates.length && !String(parsedPayload.nameHint || "").trim();
+
+    showToast(
+      noCandidateData
+        ? "Scanned QR is not valid product data"
+        : "No matching product found for scanned code",
+      "warning"
+    );
+    return false;
+  }
+
+  const added = addToCart(resolvedProduct, 1);
+  if (!added) {
+    return false;
+  }
+
+  renderProductTable();
+  showToast(
+    scannerSource ? `Product added: ${resolvedProduct.name}` : `${sourceLabel}: ${resolvedProduct.name}`,
+    "success"
+  );
+
+  return true;
+}
+
+async function applyScannedBarcode(code, sourceLabel = "Scanned") {
+  return applyScannedPayload(
+    {
+      code,
+      rawValue: String(code || ""),
+      format: "BARCODE",
+    },
+    sourceLabel
+  );
 }
 
 function promptManualBarcodeEntry() {
@@ -5146,7 +5848,7 @@ function openScannerModal() {
   }
 
   elements.scannerModal.classList.remove("hidden");
-  setScannerStatus("Align barcode within the box and hold steady", "info");
+  setScannerStatus("Align barcode or QR within the box and hold steady", "info");
 }
 
 async function stopScanner() {
@@ -5193,13 +5895,13 @@ function ensureBarcodeScanner() {
       showToast(message, "error");
     },
     onNoDetection: () => {
-      showToast("No barcode detected. Try better lighting or hold steady", "warning");
+      showToast("No barcode or QR detected. Try better lighting or hold steady", "warning");
       void closeScannerModal().finally(() => {
         promptManualBarcodeEntry();
       });
     },
     onDetected: async ({ code, rawValue, format, engine }) => {
-      logScannerDebug("Scanner accepted barcode", {
+      logScannerDebug("Scanner accepted code", {
         code,
         rawValue,
         format,
@@ -5209,7 +5911,7 @@ function ensureBarcodeScanner() {
       await stopScanner();
       elements.scannerModal.classList.add("hidden");
       restoreModalFocus(elements.scannerModal);
-      await applyScannedBarcode(code, "Scanned");
+      await applyScannedPayload({ code, rawValue, format }, "Scanned");
       state.scannerRunning = false;
     },
   });
@@ -5506,6 +6208,35 @@ function bindEvents() {
     }
   });
 
+  if (elements.productQrGenerateButton) {
+    elements.productQrGenerateButton.addEventListener("click", () => {
+      void generateProductQrCodeFromForm();
+    });
+  }
+
+  if (elements.productQrDownloadButton) {
+    elements.productQrDownloadButton.addEventListener("click", () => {
+      downloadProductQrCode();
+    });
+  }
+
+  if (elements.productQrPrintButton) {
+    elements.productQrPrintButton.addEventListener("click", () => {
+      printProductQrCode();
+    });
+  }
+
+  ["name", "barcode", "price"].forEach((fieldName) => {
+    const field = elements.productForm?.[fieldName];
+    if (!field) {
+      return;
+    }
+
+    field.addEventListener("input", () => {
+      markProductQrStale();
+    });
+  });
+
   elements.productForm.addEventListener("submit", async (event) => {
     event.preventDefault();
 
@@ -5517,8 +6248,32 @@ function bindEvents() {
       stock: asNumber(elements.productForm.stock.value),
     };
 
-    if (!payload.name || !payload.barcode) {
-      showToast("Name and barcode are required", "error");
+    if (!payload.name) {
+      showToast("Product name is required", "error");
+      return;
+    }
+
+    if (!Number.isFinite(payload.price) || payload.price < 0) {
+      showToast("Enter a valid non-negative price", "error");
+      return;
+    }
+
+    if (!Number.isFinite(payload.stock) || payload.stock < 0) {
+      showToast("Enter a valid non-negative stock quantity", "error");
+      return;
+    }
+
+    if (!payload.barcode) {
+      payload.barcode = ensureProductFormBarcode({ showMessage: true });
+    }
+
+    if (!payload.barcode) {
+      showToast("Unable to generate a barcode right now", "error");
+      return;
+    }
+
+    if (isBarcodeDuplicate(payload.barcode)) {
+      showToast("Another product already uses this barcode", "error");
       return;
     }
 
@@ -6030,6 +6785,7 @@ async function init() {
   renderPaymentSettingsForm();
   renderBillPhoneSuggestions();
   setBillSendStatus("Not sent yet", "neutral");
+  resetProductQrPreview();
 
   renderCart();
   updateAuthBadge();

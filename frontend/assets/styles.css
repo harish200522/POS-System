@@ -586,6 +586,77 @@ html[data-theme="dark"] .mesh-bg {
   color: color-mix(in srgb, var(--text-muted) 70%, transparent);
 }
 
+.form-helper-text {
+  margin: -0.1rem 0 0;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+.product-barcode-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: end;
+}
+
+.product-barcode-field {
+  margin: 0;
+}
+
+.product-qr-generate-btn {
+  min-width: 8.2rem;
+}
+
+.product-qr-card {
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--surface-soft) 92%, transparent);
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.product-qr-preview-head {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.product-qr-preview-title {
+  margin: 0;
+  font-size: 0.74rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.product-qr-meta {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--text-soft);
+}
+
+.product-qr-canvas-wrap {
+  border: 1px dashed color-mix(in srgb, var(--primary) 35%, var(--border));
+  border-radius: 0.9rem;
+  background: #fff;
+  padding: 0.5rem;
+  width: min(15rem, 100%);
+}
+
+.product-qr-canvas-wrap canvas {
+  width: 100%;
+  height: auto;
+  border-radius: 0.7rem;
+  background: #fff;
+}
+
+.product-qr-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
 .section-loading {
   position: relative;
   overflow: hidden;
@@ -2251,10 +2322,20 @@ html[data-theme="dark"] .mesh-bg {
   width: min(460px, 96vw);
 }
 
+#scanner-modal.modal {
+  padding: 0;
+  align-items: stretch;
+}
+
 .scanner-modal-card {
-  width: min(680px, 92vw);
-  max-height: min(78vh, 38rem);
-  min-height: auto;
+  width: 100vw;
+  max-width: 100vw;
+  max-height: 100dvh;
+  min-height: 100dvh;
+  border-radius: 0;
+  border: none;
+  padding: 0.95rem 0.9rem calc(0.95rem + var(--safe-bottom));
+  background: linear-gradient(176deg, rgba(8, 16, 40, 0.97), rgba(11, 25, 57, 0.95));
   display: flex;
   flex-direction: column;
 }
@@ -2274,15 +2355,18 @@ html[data-theme="dark"] .mesh-bg {
 
 .scanner-stage {
   position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
 }
 
 .scanner-box {
   position: relative;
   width: 100%;
-  min-height: clamp(15rem, 46vh, 21rem);
-  border-radius: 0.9rem;
+  min-height: clamp(18rem, 64vh, 42rem);
+  border-radius: 1.1rem;
   overflow: hidden;
-  border: 1px dashed var(--border);
+  border: 1px dashed rgba(148, 163, 184, 0.6);
   background: #020617;
 }
 
@@ -2306,8 +2390,8 @@ html[data-theme="dark"] .mesh-bg {
 
 .scanner-guide-corners {
   position: absolute;
-  width: min(72%, 21rem);
-  height: min(44%, 8.4rem);
+  width: min(78%, 30rem);
+  height: min(58%, 18rem);
   border: 2px solid rgba(255, 255, 255, 0.68);
   border-radius: 0.65rem;
   box-shadow: 0 0 0 999px rgba(2, 6, 23, 0.28);
@@ -2865,8 +2949,8 @@ html[data-theme="dark"] .checkout-summary {
   }
 
   #scanner-modal.modal {
-    padding: 0.75rem;
-    align-items: center;
+    padding: 0;
+    align-items: stretch;
   }
 
   .modal-card {
@@ -2880,18 +2964,19 @@ html[data-theme="dark"] .checkout-summary {
   }
 
   .scanner-modal-card {
-    width: min(94vw, 34rem);
-    max-height: min(76dvh, 34rem);
-    min-height: auto;
-    border-radius: 1rem;
-    border: 1px solid rgba(148, 163, 184, 0.35);
-    padding: 0.9rem;
+    width: 100vw;
+    max-width: 100vw;
+    max-height: 100dvh;
+    min-height: 100dvh;
+    border-radius: 0;
+    border: none;
+    padding: 0.9rem 0.8rem calc(0.9rem + var(--safe-bottom));
     display: flex;
     flex-direction: column;
   }
 
   .scanner-box {
-    min-height: clamp(14rem, 44dvh, 19rem);
+    min-height: clamp(18rem, 66dvh, 30rem);
   }
 
   .scanner-head-actions {
@@ -2912,6 +2997,19 @@ html[data-theme="dark"] .checkout-summary {
 
   #scanner-search-name {
     grid-column: 1 / -1;
+  }
+
+  .product-barcode-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .product-qr-generate-btn,
+  .product-qr-actions {
+    width: 100%;
+  }
+
+  .product-qr-actions {
+    grid-template-columns: 1fr;
   }
 
   .bill-modal-card,

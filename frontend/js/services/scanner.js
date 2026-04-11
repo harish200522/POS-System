@@ -306,7 +306,7 @@ class ProductionBarcodeScanner {
       try {
         await this.startWithQuagga(preferredCameraId);
         this.engine = "quagga";
-        this.setStatus("Scanner running in fallback mode", "warning");
+        this.setStatus("Scanner running in fallback mode (barcode only)", "warning");
       } catch (quaggaError) {
         await this.stop();
         this.emitError(getUserFacingCameraError(quaggaError));
@@ -319,7 +319,7 @@ class ProductionBarcodeScanner {
     this.setLoading(false);
 
     if (this.engine === "zxing") {
-      this.setStatus("Align barcode within the box and hold steady", "info");
+      this.setStatus("Align barcode or QR within the box and hold steady", "info");
     }
 
     this.updateControlState();
@@ -446,6 +446,7 @@ class ProductionBarcodeScanner {
         window.ZXing.BarcodeFormat.UPC_A,
         window.ZXing.BarcodeFormat.CODE_128,
         window.ZXing.BarcodeFormat.EAN_8,
+        window.ZXing.BarcodeFormat.QR_CODE,
       ]);
     }
 
@@ -654,7 +655,7 @@ class ProductionBarcodeScanner {
     });
 
     if (this.candidateHits < this.options.confirmationHits) {
-      this.setStatus("Reading barcode... hold steady", "info");
+      this.setStatus("Reading code... hold steady", "info");
       return;
     }
 
@@ -696,7 +697,7 @@ class ProductionBarcodeScanner {
     }
 
     await this.stop();
-    this.setStatus("No barcode detected. Try better lighting or hold steady", "warning");
+    this.setStatus("No barcode or QR detected. Try better lighting or hold steady", "warning");
 
     if (typeof this.options.onNoDetection === "function") {
       this.options.onNoDetection();
