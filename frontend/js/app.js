@@ -262,6 +262,10 @@ const PRODUCT_QR_CONFIG = {
   canvasSize: 220,
   barcodePrefix: "CC",
 };
+const PRODUCT_SCAN_SYNC_CONFIG = {
+  highlightMs: 1500,
+  minBackendReloadIntervalMs: 8000,
+};
 
 const THEME_STORAGE_KEY = "countercraft_theme";
 
@@ -286,6 +290,10 @@ let eventsBound = false;
 let paymentQrMarkedForRemoval = false;
 let deferredInstallPrompt = null;
 let latestProductQrPayload = null;
+let lastProductListHighlightId = "";
+let productListHighlightTimeoutId = null;
+let silentProductListRefreshPromise = null;
+let lastSilentProductListRefreshAt = 0;
 
 const ROLE_TAB_ACCESS = {
   admin: ["pos", "admin", "dashboard", "history"],
@@ -2873,6 +2881,145 @@ function normalizeProductEntries(products) {
   return products.map((product) => normalizeProductEntry(product));
 }
 
+function upsertProductInState(product, { prioritize = true } = {}) {
+  const normalizedProduct = normalizeProductEntry(product);
+  const normalizedId = String(normalizedProduct?._id || "").trim();
+  const normalizedBarcode = normalizeBarcode(normalizedProduct?.barcode);
+
+  if (!normalizedId && !normalizedBarcode) {
+    return null;
+  }
+
+  const existingIndex = state.products.findIndex((entry) => {
+    const entryId = String(entry?._id || "").trim();
+    if (normalizedId && entryId && normalizedId === entryId) {
+      return true;
+    }
+
+    return Boolean(normalizedBarcode) && normalizeBarcode(entry?.barcode) === normalizedBarcode;
+  });
+
+  if (existingIndex >= 0) {
+    state.products[existingIndex] = {
+      ...state.products[existingIndex],
+      ...normalizedProduct,
+    };
+
+    return state.products[existingIndex];
+  }
+
+  if (prioritize) {
+    state.products.unshift(normalizedProduct);
+  } else {
+    state.products.push(normalizedProduct);
+  }
+
+  return normalizedProduct;
+}
+
+function scrollProductResultCardIntoView(productId) {
+  const normalizedProductId = String(productId || "").trim();
+  if (!normalizedProductId || !elements.productResults) {
+    return;
+  }
+
+  const productCard = elements.productResults.querySelector(
+    `[data-product-card-id="${normalizedProductId}"]`
+  );
+
+  if (!(productCard instanceof HTMLElement)) {
+    return;
+  }
+
+  const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  productCard.scrollIntoView({
+    behavior: prefersReducedMotion ? "auto" : "smooth",
+    block: "nearest",
+  });
+}
+
+function highlightScannedProductInList(productId) {
+  const normalizedProductId = String(productId || "").trim();
+  if (!normalizedProductId) {
+    return;
+  }
+
+  lastProductListHighlightId = normalizedProductId;
+
+  if (productListHighlightTimeoutId) {
+    window.clearTimeout(productListHighlightTimeoutId);
+  }
+
+  renderProductResults();
+  window.requestAnimationFrame(() => {
+    scrollProductResultCardIntoView(normalizedProductId);
+  });
+
+  productListHighlightTimeoutId = window.setTimeout(() => {
+    lastProductListHighlightId = "";
+    renderProductResults();
+  }, PRODUCT_SCAN_SYNC_CONFIG.highlightMs);
+}
+
+async function refreshProductsSilentlyAfterScan({ force = false } = {}) {
+  if (!navigator.onLine) {
+    return false;
+  }
+
+  const now = Date.now();
+  if (
+    !force &&
+    now - lastSilentProductListRefreshAt < PRODUCT_SCAN_SYNC_CONFIG.minBackendReloadIntervalMs
+  ) {
+    return false;
+  }
+
+  if (silentProductListRefreshPromise) {
+    return silentProductListRefreshPromise;
+  }
+
+  silentProductListRefreshPromise = (async () => {
+    try {
+      const response = await api.getProducts({ limit: 500 });
+      state.products = normalizeProductEntries(response?.data);
+      setCachedProducts(state.products);
+      setLastSyncTimestamp();
+      updateSyncInfo();
+      renderProductResults();
+      renderProductTable();
+
+      if (lastProductListHighlightId) {
+        window.requestAnimationFrame(() => {
+          scrollProductResultCardIntoView(lastProductListHighlightId);
+        });
+      }
+
+      lastSilentProductListRefreshAt = Date.now();
+      return true;
+    } catch (error) {
+      return false;
+    } finally {
+      silentProductListRefreshPromise = null;
+    }
+  })();
+
+  return silentProductListRefreshPromise;
+}
+
+function syncProductListAfterScan(product) {
+  const syncedProduct = upsertProductInState(product, { prioritize: true });
+  if (!syncedProduct) {
+    return null;
+  }
+
+  setCachedProducts(state.products);
+  renderProductTable();
+  highlightScannedProductInList(syncedProduct._id);
+  void refreshProductsSilentlyAfterScan();
+
+  return syncedProduct;
+}
+
 function getBarcodeCandidates(value) {
   const normalized = normalizeBarcode(value);
   if (!normalized) return [];
@@ -3093,9 +3240,11 @@ function renderProductResults() {
 
   products.forEach((product, index) => {
     const stockCount = Math.max(asNumber(product?.stock), 0);
+    const isScannedHighlight = String(product?._id || "") === lastProductListHighlightId;
 
     const card = document.createElement("article");
-    card.className = "product-card product-card-reveal";
+    card.className = `product-card product-card-reveal${isScannedHighlight ? " product-card-scanned" : ""}`;
+    card.dataset.productCardId = String(product?._id || "");
     card.style.setProperty("--card-index", String(index));
 
     const infoWrap = document.createElement("div");
@@ -5411,12 +5560,9 @@ async function resolveProductByBarcode(code) {
     try {
       const response = await api.getProductByBarcode(candidate);
       if (response?.data) {
-        const normalizedProduct = normalizeProductEntry(response.data);
-        const existingIndex = state.products.findIndex((product) => product._id === normalizedProduct._id);
-        if (existingIndex >= 0) {
-          state.products[existingIndex] = normalizedProduct;
-        } else {
-          state.products.unshift(normalizedProduct);
+        const normalizedProduct = upsertProductInState(response.data, { prioritize: true });
+        if (!normalizedProduct) {
+          continue;
         }
 
         logScannerDebug("Remote exact barcode lookup matched", {
@@ -5445,11 +5591,9 @@ async function resolveProductByBarcode(code) {
       const remoteMatch = findBestBarcodeMatch(remoteProducts, candidates);
 
       if (remoteMatch.product) {
-        const existingIndex = state.products.findIndex((product) => product._id === remoteMatch.product._id);
-        if (existingIndex >= 0) {
-          state.products[existingIndex] = remoteMatch.product;
-        } else {
-          state.products.unshift(remoteMatch.product);
+        const syncedProduct = upsertProductInState(remoteMatch.product, { prioritize: true });
+        if (!syncedProduct) {
+          return null;
         }
 
         logScannerDebug("Remote partial barcode lookup matched", {
@@ -5458,14 +5602,14 @@ async function resolveProductByBarcode(code) {
           candidateUsed: remoteMatch.candidate,
           matchType: remoteMatch.score === 3 ? "exact" : "partial",
           product: {
-            id: remoteMatch.product._id,
-            name: remoteMatch.product.name,
-            barcode: remoteMatch.product.barcode,
-            barcodeLength: remoteMatch.product.barcode.length,
+            id: syncedProduct._id,
+            name: syncedProduct.name,
+            barcode: syncedProduct.barcode,
+            barcodeLength: syncedProduct.barcode.length,
           },
         });
 
-        return remoteMatch.product;
+        return syncedProduct;
       }
 
       logScannerDebug("Remote partial barcode lookup found no match", {
@@ -5719,14 +5863,7 @@ async function resolveProductByName(nameHint, { priceHint = Number.NaN } = {}) {
       return null;
     }
 
-    const existingIndex = state.products.findIndex((product) => product._id === remoteMatch._id);
-    if (existingIndex >= 0) {
-      state.products[existingIndex] = remoteMatch;
-    } else {
-      state.products.unshift(remoteMatch);
-    }
-
-    return remoteMatch;
+    return upsertProductInState(remoteMatch, { prioritize: true });
   } catch (error) {
     return null;
   }
@@ -5805,9 +5942,9 @@ async function applyScannedPayload(payload = {}, sourceLabel = "Scanned") {
     return false;
   }
 
-  renderProductTable();
+  const syncedProduct = syncProductListAfterScan(resolvedProduct) || resolvedProduct;
   showToast(
-    scannerSource ? `Product added: ${resolvedProduct.name}` : `${sourceLabel}: ${resolvedProduct.name}`,
+    scannerSource ? `Product added: ${syncedProduct.name}` : `${sourceLabel}: ${syncedProduct.name}`,
     "success"
   );
 

@@ -1075,6 +1075,17 @@ html[data-theme="dark"] .mesh-bg {
   animation-delay: calc(var(--card-index, 0) * 24ms);
 }
 
+.product-card.product-card-scanned {
+  border-color: color-mix(in srgb, var(--primary) 70%, #22c55e);
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--surface-solid) 93%, transparent),
+    color-mix(in srgb, #bbf7d0 28%, var(--surface-solid))
+  );
+  box-shadow: 0 0 0 1px color-mix(in srgb, #22c55e 42%, transparent),
+    0 14px 30px -18px color-mix(in srgb, #22c55e 42%, transparent);
+}
+
 @keyframes product-card-in {
   from {
     opacity: 0;
@@ -3899,6 +3910,12 @@ html[data-theme="dark"] .mesh-bg {
 .report-toolbar:hover,
 .checkout-summary:hover {
   border-color: rgba(122, 225, 255, 0.5);
+}
+
+.product-card.product-card-scanned {
+  border-color: rgba(122, 225, 255, 0.86);
+  background: linear-gradient(145deg, rgba(17, 48, 99, 0.92), rgba(11, 71, 94, 0.9));
+  box-shadow: 0 0 0 1px rgba(122, 225, 255, 0.42), 0 14px 30px -18px rgba(56, 189, 248, 0.45);
 }
 
 .dashboard-card-icon {
