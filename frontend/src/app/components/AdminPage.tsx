@@ -78,6 +78,7 @@ export default function AdminPage({ onTabChange }: AdminPageProps) {
   const [upiId, setUpiId] = useState("");
   const [loadingPayment, setLoadingPayment] = useState(false);
   const [isSavingPayment, setIsSavingPayment] = useState(false);
+  const [hasLoadedPayment, setHasLoadedPayment] = useState(false);
 
   // General Handlers
   const handleTabChange = (tab: string) => {
@@ -135,9 +136,11 @@ export default function AdminPage({ onTabChange }: AdminPageProps) {
       const res = await api.getPaymentSettings();
       if (res.success && res.data) {
         setUpiId(res.data.upiId || "");
+        if (res.data.upiId) localStorage.setItem("pos_upi_id", res.data.upiId);
       }
     } catch {
-      // ignore
+      const saved = localStorage.getItem("pos_upi_id");
+      if (saved) setUpiId(saved);
     } finally {
       setLoadingPayment(false);
     }
@@ -148,9 +151,12 @@ export default function AdminPage({ onTabChange }: AdminPageProps) {
     if (menuPage === "inventory" && inventory.length === 0) fetchInventory();
     if (menuPage === "settings") {
       if (users.length === 0) fetchUsers();
-      if (!upiId) fetchPaymentSettings();
+      if (!hasLoadedPayment) {
+        fetchPaymentSettings();
+        setHasLoadedPayment(true);
+      }
     }
-  }, [menuPage, fetchInventory, fetchUsers, fetchPaymentSettings, inventory.length, users.length, upiId]);
+  }, [menuPage, fetchInventory, fetchUsers, fetchPaymentSettings, inventory.length, users.length, hasLoadedPayment]);
 
   // -- PRODUCT ACTIONS --
   const handleSaveProduct = async () => {
@@ -262,9 +268,14 @@ export default function AdminPage({ onTabChange }: AdminPageProps) {
 
   // -- PAYMENT ACTIONS --
   const handleSavePaymentSettings = async () => {
+    if (upiId && !upiId.includes("@")) {
+      alert("Invalid UPI ID: must include '@'");
+      return;
+    }
     setIsSavingPayment(true);
     try {
       await api.savePaymentSettings({ upiId });
+      localStorage.setItem("pos_upi_id", upiId);
       alert("Payment settings saved!");
     } catch (err: any) {
       alert("Failed to save payment settings: " + err.message);

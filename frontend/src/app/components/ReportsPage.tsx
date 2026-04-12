@@ -23,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { api } from "../../services/api";
+import { api, downloadFile } from "../../services/api";
 import { useAuth } from "../../context/AuthContext";
 import { getLastSyncTimestamp } from "../../services/storage";
 
@@ -148,9 +148,12 @@ export default function ReportsPage({ onTabChange }: ReportsPageProps) {
               ))}
             </div>
 
-            <div className="grid gap-3">
-              <Button onClick={() => window.alert("CSV Export not fully wired in frontend mockup")} variant="outline" className="w-full h-11 border-blue-300 text-blue-700 font-bold hover:bg-blue-50">
-                <Download className="w-4 h-4 mr-2" /> Export Summary (CSV)
+            <div className="grid grid-cols-2 gap-3">
+              <Button onClick={() => downloadFile("/reports/export/csv", "reports.csv", { range: timePeriod })} variant="outline" className="w-full h-11 border-blue-300 text-blue-700 font-bold hover:bg-blue-50">
+                <Download className="w-4 h-4 mr-2" /> Download CSV
+              </Button>
+              <Button onClick={() => downloadFile("/reports/export/pdf", "reports.pdf", { range: timePeriod })} variant="outline" className="w-full h-11 border-red-300 text-red-700 font-bold hover:bg-red-50">
+                <Download className="w-4 h-4 mr-2" /> Download PDF
               </Button>
             </div>
           </Card>

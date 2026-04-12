@@ -16,6 +16,7 @@ import {
   setLastSyncTimestamp, queuePendingSale,
 } from "../../services/storage";
 import ScannerModal from "./ScannerModal";
+import QRCode from "react-qr-code";
 
 interface Product {
   _id: string;
@@ -54,6 +55,9 @@ export default function POSPage({ onTabChange }: POSPageProps) {
 
   // Summary stats
   const [summary, setSummary] = useState<any>(null);
+  
+  // Payment config
+  const [shopUpiId, setShopUpiId] = useState<string>(localStorage.getItem("pos_upi_id") || "");
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
@@ -96,6 +100,14 @@ export default function POSPage({ onTabChange }: POSPageProps) {
   useEffect(() => {
     fetchProducts();
     fetchSummary();
+    
+    // Fetch latest UPI
+    api.getPaymentSettings().then(res => {
+      if (res.success && res.data?.upiId) {
+        setShopUpiId(res.data.upiId);
+        localStorage.setItem("pos_upi_id", res.data.upiId);
+      }
+    }).catch(() => {});
 
     const handleOnline = () => { setIsOnline(true); fetchProducts(); };
     const handleOffline = () => setIsOnline(false);
@@ -531,6 +543,22 @@ export default function POSPage({ onTabChange }: POSPageProps) {
                       <button onClick={() => setPaymentMethod("upi")} className={`h-11 rounded-lg font-medium transition-all ${paymentMethod === "upi" ? "bg-blue-600 text-white shadow-sm" : "bg-white border-2 border-stone-300 text-stone-700 hover:border-stone-400"}`}>UPI</button>
                     </div>
                   </div>
+
+                  {paymentMethod === "upi" && (
+                    <div className="mb-4 text-center">
+                      {shopUpiId ? (
+                         <div className="bg-white p-4 border-2 border-blue-100 rounded-xl flex flex-col items-center justify-center shadow-inner">
+                           <QRCode value={`upi://pay?pa=${shopUpiId}&pn=CounterCraft&am=${totalAmount}`} size={160} />
+                           <p className="text-xs font-bold text-blue-700 mt-3 uppercase tracking-wide">Scan to Pay ₹{totalAmount}</p>
+                         </div>
+                      ) : (
+                         <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm font-medium flex flex-col items-center justify-center">
+                           <AlertTriangle className="w-5 h-5 mb-1" />
+                           UPI ID not configured in Admin Settings.
+                         </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Paid Amount */}
                   <div className="mb-4">

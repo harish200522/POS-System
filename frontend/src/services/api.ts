@@ -84,6 +84,52 @@ async function request<T = any>(
   return payload;
 }
 
+export async function downloadFile(path: string, filename: string, query?: Record<string, any>) {
+  const endpoint = buildUrl(path, query);
+  try {
+    const response = await fetch(endpoint, {
+      method: "GET",
+      // Include authorization logic if necessary here. 
+      // If there's an auth token in local storage, you can attach it here or use credentials
+      headers: {
+        "Content-Type": "application/json",
+        // "Authorization": `Bearer ${token}` if you use JWT
+      },
+      credentials: "include"
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to download file (status ${response.status})`);
+    }
+    const blob = await response.blob();
+    if (blob.size === 0) {
+       throw new Error("No data available to export.");
+    }
+    
+    // Fallback filename from Content-Disposition if available
+    const disposition = response.headers.get("Content-Disposition");
+    let finalFileName = filename;
+    if (disposition && disposition.indexOf('attachment') !== -1) {
+       const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+       const matches = filenameRegex.exec(disposition);
+       if (matches != null && matches[1]) { 
+           finalFileName = matches[1].replace(/['"]/g, '');
+       }
+    }
+
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = finalFileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  } catch (error: any) {
+    alert("Export failed: " + error.message);
+  }
+}
+
 // ── Auth ─────────────────────────────────────────────────
 export const api = {
   bootstrapAdmin: (body: any) => request("/auth/bootstrap-admin", { method: "POST", body }),
