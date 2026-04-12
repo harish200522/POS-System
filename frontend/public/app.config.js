@@ -1,7 +1,6 @@
 window.__APP_CONFIG__ = {
   // For production, set this to your deployed backend URL, e.g. "https://api.example.com/api"
-  // Keep it as "/api" to allow Vite dev proxy to route it to the local backend, and work relative to standard prod servers.
-  API_BASE_URL: "/api",
+  API_BASE_URL: "https://pos-backend-harish.onrender.com/api",
 
   SHOP_NAME: "CounterCraft POS",
   SHOP_ADDRESS: "Retail Counter",
