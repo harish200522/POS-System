@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   ShoppingBag, Search, Home, BarChart3, Settings, Wifi, Clock, Plus,
   RefreshCw, Download, Printer, Edit, Archive, Upload, Menu, X, Package,
-  History, Loader2, Play
+  History, Loader2, Play, Scan, QrCode
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -14,6 +14,8 @@ import {
 import { api } from "../../services/api";
 import { useAuth } from "../../context/AuthContext";
 import { getLastSyncTimestamp } from "../../services/storage";
+import ScannerModal from "./ScannerModal";
+import QRCode from "react-qr-code";
 
 interface Product {
   _id: string;
@@ -41,9 +43,9 @@ export default function AdminPage({ onTabChange }: AdminPageProps) {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState("admin");
 
-  // Basic layout state
   const [showMenu, setShowMenu] = useState(false);
   const [menuPage, setMenuPage] = useState<"main" | "settings" | "inventory">("main");
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [lastSync, setLastSync] = useState<string | null>(getLastSyncTimestamp());
 
@@ -392,8 +394,45 @@ export default function AdminPage({ onTabChange }: AdminPageProps) {
                 <Input id="productName" value={productName} onChange={(e) => setProductName(e.target.value)} placeholder="Enter product name" className="h-11 bg-white border-stone-300 focus:border-amber-700 focus:ring-amber-700/10 rounded-lg" />
               </div>
               <div>
-                <Label htmlFor="barcode" className="text-sm font-medium text-stone-700 mb-1.5 block">Barcode</Label>
-                <Input id="barcode" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="Leave blank to auto-generate" className="h-11 bg-white border-stone-300 focus:border-amber-700 focus:ring-amber-700/10 rounded-lg" />
+                <Label htmlFor="barcode" className="text-sm font-medium text-stone-700 mb-1.5 block">Barcode / QR</Label>
+                <div className="flex gap-2">
+                   <Input id="barcode" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="Leave blank to auto-generate" className="h-11 bg-white border-stone-300 focus:border-amber-700 focus:ring-amber-700/10 rounded-lg flex-1" />
+                   <Button variant="outline" className="h-11 px-3 border-stone-300" onClick={() => setIsScannerOpen(true)}>
+                     <Scan className="w-5 h-5" />
+                   </Button>
+                </div>
+                {barcode && (
+                  <div className="p-4 mt-3 bg-stone-50 border border-stone-200 rounded-lg flex flex-col items-center">
+                     <p className="text-xs text-stone-500 font-bold tracking-wider mb-2 uppercase">Product QR Code</p>
+                     <div className="p-2 bg-white rounded-lg shadow-sm border border-stone-200" id="qr-preview-box">
+                        <QRCode value={barcode} size={130} />
+                     </div>
+                     <Button variant="outline" size="sm" className="mt-3 text-xs h-8 border-stone-300" onClick={() => {
+                       const svg = document.getElementById("qr-preview-box")?.querySelector("svg");
+                       if (!svg) return;
+                       const svgData = new XMLSerializer().serializeToString(svg);
+                       const canvas = document.createElement("canvas");
+                       const ctx = canvas.getContext("2d");
+                       const img = new Image();
+                       img.onload = () => {
+                         canvas.width = 130; canvas.height = 130; 
+                         if (ctx) {
+                           ctx.fillStyle = "white";
+                           ctx.fillRect(0, 0, canvas.width, canvas.height);
+                           ctx.drawImage(img, 0, 0);
+                         }
+                         const pwa = canvas.toDataURL("image/png");
+                         const link = document.createElement("a");
+                         link.download = `QR_${productName || "Product"}.png`;
+                         link.href = pwa;
+                         link.click();
+                       };
+                       img.src = "data:image/svg+xml;base64," + btoa(svgData);
+                     }}>
+                       <Download className="w-3.5 h-3.5 mr-1" /> Download PNG
+                     </Button>
+                  </div>
+                )}
               </div>
               <div>
                 <Label htmlFor="category" className="text-sm font-medium text-stone-700 mb-1.5 block">Category</Label>
@@ -584,6 +623,15 @@ export default function AdminPage({ onTabChange }: AdminPageProps) {
           </div>
         </div>
       </div>
+
+      <ScannerModal 
+        isOpen={isScannerOpen} 
+        onClose={() => setIsScannerOpen(false)} 
+        onScan={(text) => {
+           setBarcode(text);
+           setIsScannerOpen(false);
+        }} 
+      />
     </div>
   );
 }

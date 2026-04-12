@@ -15,6 +15,7 @@ import {
   getCachedProducts, setCachedProducts, getLastSyncTimestamp,
   setLastSyncTimestamp, queuePendingSale,
 } from "../../services/storage";
+import ScannerModal from "./ScannerModal";
 
 interface Product {
   _id: string;
@@ -40,6 +41,7 @@ export default function POSPage({ onTabChange }: POSPageProps) {
   const [tax, setTax] = useState("0");
   const [discount, setDiscount] = useState("0");
   const [paidAmount, setPaidAmount] = useState("0");
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
 
   // Data state
   const [products, setProducts] = useState<Product[]>([]);
@@ -301,7 +303,7 @@ export default function POSPage({ onTabChange }: POSPageProps) {
               </div>
 
               <Button
-                onClick={handleBarcodeSearch}
+                onClick={() => setIsScannerOpen(true)}
                 className="w-full h-12 lg:h-14 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg rounded-xl font-semibold text-sm lg:text-base transition-all hover:shadow-xl"
               >
                 <Scan className="w-5 h-5 lg:w-6 lg:h-6 mr-2" />
@@ -606,6 +608,26 @@ export default function POSPage({ onTabChange }: POSPageProps) {
           </div>
         </div>
       </div>
+      
+      <ScannerModal 
+        isOpen={isScannerOpen} 
+        onClose={() => setIsScannerOpen(false)} 
+        onScan={(text) => {
+           setSearchQuery(text);
+           setIsScannerOpen(false);
+           // Delay slightly to let state setter queue up before search attempts mapped validation
+           setTimeout(() => {
+              const syntheticEvent = { key: "Enter" } as React.KeyboardEvent<HTMLInputElement>;
+              // direct fetch instead of needing event queue
+              api.getProductByBarcode(text.trim()).then((res) => {
+                 if (res.success && res.data) {
+                    addToCart(res.data);
+                    setSearchQuery("");
+                 }
+              }).catch(() => {});
+           }, 100);
+        }} 
+      />
     </div>
   );
 }

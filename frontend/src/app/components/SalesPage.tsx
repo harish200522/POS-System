@@ -10,6 +10,7 @@ import {
   Wifi,
   Loader2,
 } from "lucide-react";
+import { Button } from "./ui/button";
 import { api } from "../../services/api";
 import { useAuth } from "../../context/AuthContext";
 import { getLastSyncTimestamp } from "../../services/storage";
