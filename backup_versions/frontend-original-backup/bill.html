@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CounterCraft Invoice</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #050a1f;
+        --surface: rgba(10, 20, 56, 0.9);
+        --border: rgba(105, 132, 214, 0.42);
+        --text: #ecf3ff;
+        --muted: #91a7dd;
+        --primary: #17b8d8;
+        --accent: #1f6de2;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(circle at 12% 0%, rgba(31, 109, 226, 0.24), transparent 34%),
+          radial-gradient(circle at 86% 6%, rgba(23, 184, 216, 0.16), transparent 32%),
+          linear-gradient(160deg, #050a1f, #0a1434 52%, #050a1f);
+        color: var(--text);
+        font-family: "Plus Jakarta Sans", sans-serif;
+      }
+
+      .invoice-page-shell {
+        width: min(880px, 100%);
+        margin: 0 auto;
+        padding: 1rem;
+      }
+
+      .invoice-page-head {
+        border: 1px solid var(--border);
+        border-radius: 1.2rem;
+        background: var(--surface);
+        box-shadow: 0 24px 54px -34px rgba(1, 7, 26, 0.9);
+        padding: 1rem;
+      }
+
+      .invoice-page-head h1 {
+        margin: 0;
+        font-family: "Sora", sans-serif;
+        font-size: clamp(1.3rem, 1vw + 1rem, 1.75rem);
+      }
+
+      .invoice-page-head p {
+        margin: 0.35rem 0 0;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .invoice-page-status {
+        margin-top: 0.75rem;
+        border: 1px solid var(--border);
+        border-radius: 0.82rem;
+        background: var(--surface);
+        color: var(--muted);
+        padding: 0.6rem 0.7rem;
+        font-size: 0.82rem;
+      }
+
+      .invoice-page-status[data-tone="error"] {
+        border-color: rgba(248, 113, 113, 0.45);
+        color: #991b1b;
+        background: rgba(254, 226, 226, 0.74);
+      }
+
+      .invoice-page-status[data-tone="success"] {
+        border-color: rgba(16, 185, 129, 0.45);
+        color: #065f46;
+        background: rgba(209, 250, 229, 0.74);
+      }
+
+      .invoice-card {
+        margin-top: 0.75rem;
+        border: 1px solid var(--border);
+        border-radius: 1.2rem;
+        background: var(--surface);
+        box-shadow: 0 24px 54px -34px rgba(1, 7, 26, 0.9);
+        padding: 1rem;
+        display: grid;
+        gap: 0.8rem;
+      }
+
+      .invoice-summary-grid {
+        display: grid;
+        gap: 0.6rem;
+        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      }
+
+      .invoice-summary-card {
+        border: 1px solid var(--border);
+        border-radius: 0.85rem;
+        background: rgba(7, 16, 45, 0.88);
+        padding: 0.6rem 0.7rem;
+      }
+
+      .invoice-summary-card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.74rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 700;
+      }
+
+      .invoice-summary-card strong {
+        display: block;
+        margin-top: 0.28rem;
+        font-size: 0.96rem;
+      }
+
+      .invoice-items-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      .invoice-items-table th,
+      .invoice-items-table td {
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+        padding: 0.5rem 0.35rem;
+        font-size: 0.86rem;
+      }
+
+      .invoice-items-table th {
+        color: var(--muted);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .invoice-total-grid {
+        display: grid;
+        gap: 0.36rem;
+      }
+
+      .invoice-total-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.6rem;
+        font-size: 0.9rem;
+      }
+
+      .invoice-total-row strong {
+        font-size: 1rem;
+      }
+
+      .invoice-total-row.grand strong {
+        color: var(--primary);
+        font-size: 1.22rem;
+      }
+
+      .invoice-actions {
+        display: grid;
+        gap: 0.5rem;
+      }
+
+      .invoice-actions button,
+      .invoice-actions a {
+        min-height: 44px;
+        border-radius: 0.8rem;
+        border: 1px solid var(--border);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.4rem;
+        font-size: 0.9rem;
+        font-weight: 700;
+        text-decoration: none;
+        cursor: pointer;
+      }
+
+      .invoice-actions .primary {
+        border: none;
+        color: #ffffff;
+        background: linear-gradient(124deg, var(--primary), var(--accent));
+      }
+
+      .invoice-actions .secondary {
+        color: #d7e4ff;
+        background: rgba(9, 20, 57, 0.86);
+      }
+
+      .invoice-phone-field {
+        display: grid;
+        gap: 0.25rem;
+        font-size: 0.78rem;
+        color: var(--muted);
+      }
+
+      .invoice-phone-field input {
+        min-height: 44px;
+        border-radius: 0.8rem;
+        border: 1.4px solid rgba(108, 134, 210, 0.48);
+        background: rgba(7, 16, 45, 0.88);
+        color: var(--text);
+        padding: 0.55rem 0.7rem;
+        font: inherit;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="invoice-page-shell">
+      <header class="invoice-page-head">
+        <h1>CounterCraft Digital Invoice</h1>
+        <p>Secure bill preview and quick sharing.</p>
+      </header>
+
+      <p id="invoice-page-status" class="invoice-page-status">Loading invoice...</p>
+
+      <section id="invoice-card" class="invoice-card hidden">
+        <div id="invoice-summary" class="invoice-summary-grid"></div>
+
+        <table class="invoice-items-table">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Qty</th>
+              <th>Price</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody id="invoice-items-body"></tbody>
+        </table>
+
+        <div id="invoice-totals" class="invoice-total-grid"></div>
+
+        <div class="invoice-actions">
+          <button id="invoice-download-pdf" class="primary" type="button">Download PDF</button>
+
+          <label class="invoice-phone-field">
+            Customer WhatsApp Number
+            <input
+              id="invoice-customer-phone"
+              type="tel"
+              inputmode="tel"
+              autocomplete="tel"
+              list="invoice-phone-suggestions"
+              placeholder="e.g. +919876543210"
+            />
+            <datalist id="invoice-phone-suggestions"></datalist>
+          </label>
+
+          <a id="invoice-whatsapp" class="secondary" href="#" target="_blank" rel="noopener noreferrer">
+            Send via WhatsApp
+          </a>
+        </div>
+      </section>
+    </main>
+
+    <script src="./app.config.js"></script>
+    <script type="module" src="./js/bill-viewer.js?v=20260407-1"></script>
+  </body>
+</html>
