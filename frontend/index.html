@@ -34,89 +34,9 @@
     <div class="grain-overlay"></div>
 
     <div class="app-shell relative z-10 mx-auto max-w-7xl px-4 pb-8 pt-6 md:px-8">
-      <header class="surface app-header p-6 md:p-8">
-        <div class="header-main-row flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p class="eyebrow">Retail Billing Suite</p>
-            <h1 class="headline mt-2">CounterCraft POS</h1>
-            <p class="app-tagline mt-2 max-w-2xl text-sm text-slate-600 md:text-base">
-              Premium checkout workflows built for modern retail teams.
-            </p>
-          </div>
-
-          <div class="flex w-full flex-col gap-2 lg:max-w-2xl">
-            <div class="flex flex-wrap gap-2">
-              <span
-                id="network-badge"
-                class="status-badge badge-online"
-                >Online</span
-              >
-              <span
-                id="pending-badge"
-                class="status-badge"
-                >0 pending</span
-              >
-              <span
-                id="sync-info"
-                class="status-badge"
-                >Last sync: never</span
-              >
-            </div>
-            <div class="auth-strip flex items-center gap-2">
-              <span
-                id="auth-user-badge"
-                class="status-badge"
-                >Not signed in</span
-              >
-              <button
-                id="logout-button"
-                class="secondary-btn btn-inline hidden"
-                type="button"
-              >
-                Logout
-              </button>
-            </div>
-            <div class="header-action-row">
-              <div
-                class="quick-actions"
-                role="toolbar"
-                aria-label="Quick actions"
-              >
-                <button
-                  id="quick-add-product"
-                  class="secondary-btn btn-inline"
-                  type="button"
-                >
-                  Add SKU
-                </button>
-                <button
-                  id="quick-sync"
-                  class="secondary-btn btn-inline"
-                  type="button"
-                >
-                  Sync Sales
-                </button>
-              </div>
-
-              <button
-                id="theme-toggle-button"
-                class="theme-toggle-btn"
-                type="button"
-                aria-pressed="false"
-                aria-label="Toggle dark mode"
-              >
-                Dark Mode
-              </button>
-              <button
-                id="install-app-button"
-                class="secondary-btn btn-inline hidden"
-                type="button"
-              >
-                Install App
-              </button>
-            </div>
-          </div>
-        </div>
+      <!-- Admin page header and cards will be rebuilt in the admin tab below -->
+      <header class="surface app-header pos-header-card p-4 md:p-5">
+        <!-- ...existing code... -->
       </header>
 
       <nav
@@ -212,49 +132,66 @@
         >
           <div class="pos-grid">
             <article class="surface pos-products-panel p-4 md:p-5">
-              <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h2 class="section-title">Smart Product Lookup</h2>
-                  <p class="section-subtitle">
-                    Find products in seconds with name, barcode, or camera-assisted scan.
-                  </p>
+              <div class="pos-section-head">
+                <h2 class="section-title">Search Product</h2>
+                <p class="section-subtitle">Find products by name, barcode, or category</p>
+              </div>
+
+              <div class="pos-search-stack mt-3">
+                <div class="search-input-wrap">
+                  <span class="search-input-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <circle
+                        cx="11"
+                        cy="11"
+                        r="7"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                      ></circle>
+                      <path
+                        d="M20 20l-3.4-3.4"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                      ></path>
+                    </svg>
+                  </span>
+                  <input
+                    id="search-input"
+                    type="text"
+                    placeholder="Type name, barcode, or category"
+                    class="field-input pos-search-input"
+                  />
                 </div>
+
                 <div class="lookup-actions">
+                  <button
+                    id="scan-button"
+                    type="button"
+                    class="action-btn pos-scan-btn"
+                  >
+                    Scan Product
+                  </button>
                   <button
                     id="manual-barcode-button"
                     type="button"
-                    class="secondary-btn"
+                    class="secondary-btn pos-manual-btn"
                   >
                     Enter Barcode
                   </button>
                 </div>
               </div>
 
-              <label
-                for="search-input"
-                class="mt-4 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500"
-                >Search Product</label
-              >
-              <input
-                id="search-input"
-                type="text"
-                placeholder="Type name, barcode, or category"
-                class="field-input"
-              />
-
-              <div class="pos-search-row mt-2">
-                <button
-                  id="scan-button"
-                  type="button"
-                  class="action-btn pos-scan-btn"
-                >
-                  Scan Product
-                </button>
+              <div class="pos-product-list-head mt-4">
+                <h3>Available Products</h3>
+                <span id="product-count-label">0 items</span>
               </div>
 
               <div
                 id="product-results"
-                class="product-results-scroll mt-4 space-y-2 pr-1"
+                class="product-results-scroll pos-products-list mt-2 space-y-2 pr-1"
               ></div>
             </article>
 
@@ -264,8 +201,8 @@
             >
               <div class="flex items-start justify-between gap-2">
                 <div>
-                  <h2 class="section-title">Smart Checkout</h2>
-                  <p class="section-subtitle">Touch-first controls, fast totals, and guided checkout.</p>
+                  <h2 class="section-title">Checkout</h2>
+                  <p class="section-subtitle">Complete your transaction</p>
                 </div>
                 <div class="button-group-inline">
                   <button
@@ -290,9 +227,9 @@
                   id="checkout-status-pill"
                   class="runtime-pill runtime-pill-ready"
                 >
-                  Ready to bill
+                  Ready for payment
                 </span>
-                <p class="runtime-meta">Live totals update in real-time as you bill.</p>
+                <p class="runtime-meta">Review totals and proceed when ready.</p>
               </div>
 
               <div
@@ -409,8 +346,26 @@
             class="mobile-cart-rail hidden"
             aria-live="polite"
           >
-            <div class="mobile-cart-rail-summary">
-              <p id="mobile-cart-item-count">0 items</p>
+            <div class="mobile-cart-rail-drag-handle" aria-hidden="true"></div>
+            <div class="mobile-cart-rail-main">
+              <span class="mobile-cart-rail-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path
+                    d="M3 4h2l1.4 9.2a2 2 0 0 0 2 1.7h7.7a2 2 0 0 0 2-1.6L20 7H7.2"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  ></path>
+                  <circle cx="9" cy="20" r="1"></circle>
+                  <circle cx="16" cy="20" r="1"></circle>
+                </svg>
+              </span>
+              <div class="mobile-cart-rail-summary">
+                <p id="mobile-cart-item-count">0 items</p>
+                <span>Drag to reposition</span>
+              </div>
               <strong id="mobile-cart-total-value">INR 0.00</strong>
             </div>
             <div class="mobile-cart-rail-actions">
@@ -431,8 +386,9 @@
             </div>
           </div>
 
-          <article class="surface mt-5 p-4 md:p-5">
-            <h3 class="section-title">Low Stock Alerts</h3>
+          <article class="surface mt-5 p-4 md:p-5 pos-low-stock-panel">
+            <h3 class="section-title">Low Stock Alert</h3>
+            <p class="section-subtitle">Restock recommended</p>
             <div
               id="low-stock-alert"
               class="mt-2 rounded-2xl bg-amber-50 p-3"
@@ -447,341 +403,453 @@
           role="tabpanel"
           aria-hidden="true"
         >
-          <div class="grid gap-5 xl:grid-cols-[0.95fr_1.3fr]">
-            <article class="surface p-4 md:p-5">
-              <h2
-                id="product-form-title"
-                class="section-title"
-              >
-                Add Product
-              </h2>
-              <p class="section-subtitle">Create or edit products with price, stock, barcode, and product QR.</p>
-
-              <form
-                id="product-form"
-                class="mt-4 space-y-3 form-stack"
-              >
-                <label class="text-sm font-medium text-slate-700">
-                  Product Name
-                  <input
-                    name="name"
-                    required
-                    type="text"
-                    class="field-input mt-1"
-                  />
-                </label>
-                <div class="product-barcode-grid">
-                  <label class="text-sm font-medium text-slate-700 product-barcode-field">
-                    Barcode
-                    <input
-                      name="barcode"
-                      type="text"
-                      class="field-input mt-1"
-                      placeholder="Leave blank to auto-generate"
-                    />
-                  </label>
-                  <button
-                    id="product-qr-generate"
-                    class="secondary-btn product-qr-generate-btn"
-                    type="button"
-                  >
-                    Generate QR
-                  </button>
+          <div class="admin-page-stack">
+            <!-- HEADER CARD -->
+            <article class="admin-header-card">
+              <div class="admin-header-content">
+                <div class="admin-header-label">RETAIL BILLING SUITE</div>
+                <div class="admin-header-title">CounterCraft POS</div>
+                <div class="admin-header-desc">Premium checkout workflows built for modern retail teams.</div>
+                <div class="admin-header-status-row">
+                  <span id="admin-network-badge" class="admin-status-pill admin-status-online"><span class="admin-status-dot"></span>Online</span>
+                  <span id="admin-pending-badge" class="admin-status-pill admin-status-pending">0 pending</span>
                 </div>
-
-                <p class="form-helper-text">Barcode is your primary identifier. If left blank, one is auto-generated.</p>
-
-                <article
-                  id="product-qr-preview-card"
-                  class="product-qr-card"
-                >
-                  <div class="product-qr-preview-head">
-                    <p class="product-qr-preview-title">QR Preview</p>
-                    <p
-                      id="product-qr-meta"
-                      class="product-qr-meta"
-                    >
-                      Generate QR after entering product name and price.
-                    </p>
-                  </div>
-
-                  <div class="product-qr-canvas-wrap">
-                    <canvas
-                      id="product-qr-canvas"
-                      width="220"
-                      height="220"
-                      aria-label="Product QR preview"
-                    ></canvas>
-                  </div>
-
-                  <div class="product-qr-actions">
-                    <button
-                      id="product-qr-download"
-                      class="secondary-btn"
-                      type="button"
-                      disabled
-                    >
-                      Download QR
-                    </button>
-                    <button
-                      id="product-qr-print"
-                      class="secondary-btn"
-                      type="button"
-                      disabled
-                    >
-                      Print QR
-                    </button>
-                  </div>
-                </article>
-                <label class="text-sm font-medium text-slate-700">
-                  Category
-                  <input
-                    name="category"
-                    type="text"
-                    class="field-input mt-1"
-                    placeholder="General"
-                  />
-                </label>
-                <div class="grid gap-3 sm:grid-cols-2">
-                  <label class="text-sm font-medium text-slate-700">
-                    Price
-                    <input
-                      name="price"
-                      required
-                      type="number"
-                      inputmode="decimal"
-                      min="0"
-                      step="0.01"
-                      class="field-input mt-1"
-                    />
-                  </label>
-                  <label class="text-sm font-medium text-slate-700">
-                    Stock
-                    <input
-                      name="stock"
-                      required
-                      type="number"
-                      inputmode="numeric"
-                      min="0"
-                      step="1"
-                      class="field-input mt-1"
-                    />
-                  </label>
+                <div class="admin-header-sync-row">
+                  <span class="admin-sync-icon"><!-- clock icon --></span>
+                  <span id="admin-sync-info" class="admin-sync-label">Synced never</span>
                 </div>
-
-                <div class="flex flex-col gap-2 pt-2 sm:flex-row">
-                  <button
-                    id="product-form-submit"
-                    class="primary-btn"
-                    type="submit"
-                  >
-                    Save Product
-                  </button>
-                  <button
-                    id="product-form-cancel"
-                    class="secondary-btn hidden"
-                    type="button"
-                  >
-                    Cancel Edit
-                  </button>
+                <div class="admin-header-hardware-row">
+                  <span class="admin-hardware-label">Hardware: V.5</span>
+                  <span id="admin-auth-user-badge" class="admin-user-pill">Not signed in</span>
                 </div>
-              </form>
-            </article>
-
-            <article class="surface p-4 md:p-5">
-              <h2 class="section-title">Inventory Management</h2>
-              <p class="section-subtitle">Track stock, update quantities, and deactivate discontinued items.</p>
-
-              <div class="table-toolbar mt-4">
-                <label class="table-filter-field">
-                  <span>Search</span>
-                  <input
-                    id="inventory-search-input"
-                    type="text"
-                    placeholder="Name, barcode, or category"
-                    class="field-input"
-                  />
-                </label>
-                <label class="table-filter-field">
-                  <span>Status</span>
-                  <select
-                    id="inventory-status-filter"
-                    class="field-input"
-                  >
-                    <option value="all">All</option>
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                    <option value="low-stock">Low Stock</option>
-                  </select>
-                </label>
-                <label class="table-filter-field">
-                  <span>Sort</span>
-                  <select
-                    id="inventory-sort-select"
-                    class="field-input"
-                  >
-                    <option value="name-asc">Name A-Z</option>
-                    <option value="name-desc">Name Z-A</option>
-                    <option value="stock-asc">Stock Low-High</option>
-                    <option value="stock-desc">Stock High-Low</option>
-                    <option value="price-desc">Price High-Low</option>
-                    <option value="price-asc">Price Low-High</option>
-                  </select>
-                </label>
-              </div>
-
-              <div class="table-wrap mt-3">
-                <table class="responsive-table inventory-table w-full text-sm">
-                  <thead>
-                    <tr class="bg-dune-50 text-left text-xs uppercase tracking-[0.11em] text-slate-600">
-                      <th class="px-3 py-3">Name</th>
-                      <th class="px-3 py-3">Barcode</th>
-                      <th class="px-3 py-3">Category</th>
-                      <th class="px-3 py-3">Price</th>
-                      <th class="px-3 py-3">Stock</th>
-                      <th class="px-3 py-3">Status</th>
-                      <th class="px-3 py-3">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody id="product-table-body"></tbody>
-                </table>
+                <div class="admin-header-btns">
+                  <button id="admin-menu-button" class="admin-btn admin-btn-menu" type="button">☰ Menu</button>
+                  <button id="admin-logout-button" class="admin-btn admin-btn-logout" type="button">Logout</button>
+                  <button id="admin-add-sku-button" class="admin-btn admin-btn-add" type="button">+ Add SKU</button>
+                  <button id="admin-sync-sales-button" class="admin-btn admin-btn-sync" type="button">⟳ Sync Sales</button>
+                </div>
               </div>
             </article>
+
+            <!-- ADD PRODUCT SECTION -->
+            <article class="admin-product-card">
+              ...existing code...
+            </article>
+
+            <!-- MENU OVERLAY -->
+            <div id="admin-menu-overlay" class="admin-menu-overlay hidden">
+              <div class="admin-menu-drawer">
+                <button id="admin-menu-close" class="admin-menu-close-btn" type="button">×</button>
+                <nav class="admin-menu-list">
+                  <button class="admin-menu-item" data-menu="settings"><span class="admin-menu-icon">⚙️</span>Settings</button>
+                  <button class="admin-menu-item" data-menu="inventory"><span class="admin-menu-icon">📦</span>Inventory</button>
+                  <button class="admin-menu-item" data-menu="users"><span class="admin-menu-icon">👤</span>Users</button>
+                  <button class="admin-menu-item" data-menu="reports"><span class="admin-menu-icon">📊</span>Reports</button>
+                </nav>
+              </div>
+              <div class="admin-menu-backdrop"></div>
+            </div>
+
+            <!-- SETTINGS SUBVIEW -->
+            <section id="admin-settings-view" class="admin-subview hidden">
+              <div class="admin-subview-topbar">Settings</div>
+              <div class="admin-settings-card">
+                <form id="admin-settings-form" class="admin-form-stack">
+                  <label class="admin-input-label">Shop Name
+                    <input name="shopName" type="text" class="admin-input" />
+                  </label>
+                  <label class="admin-input-label">Currency
+                    <select name="currency" class="admin-input">
+                      <option value="INR">INR</option>
+                      <option value="USD">USD</option>
+                    </select>
+                  </label>
+                  <button class="admin-btn admin-btn-save" type="submit">Save Settings</button>
+                </form>
+              </div>
+            </section>
+
+            <!-- INVENTORY SUBVIEW -->
+            <section id="admin-inventory-view" class="admin-subview hidden">
+              <div class="admin-subview-topbar">Inventory</div>
+              <div class="admin-inventory-list">
+                <div class="admin-inventory-row">
+                  <span class="admin-inventory-product">Product A</span>
+                  <span class="admin-inventory-stock">12 in stock</span>
+                  <button class="admin-btn admin-btn-edit" type="button">Edit</button>
+                </div>
+                <div class="admin-inventory-row">
+                  <span class="admin-inventory-product">Product B</span>
+                  <span class="admin-inventory-stock">5 in stock</span>
+                  <button class="admin-btn admin-btn-edit" type="button">Edit</button>
+                </div>
+              </div>
+            </section>
+
+            <!-- USERS SUBVIEW (EXAMPLE) -->
+            <section id="admin-users-view" class="admin-subview hidden">
+              <div class="admin-subview-topbar">Users</div>
+              <div class="admin-users-list">
+                <div class="admin-user-row">
+                  <span class="admin-user-avatar">👤</span>
+                  <span class="admin-user-name">Admin User</span>
+                  <span class="admin-user-role">Owner</span>
+                </div>
+              </div>
+            </section>
+
+            <!-- REPORTS SUBVIEW (EXAMPLE) -->
+            <section id="admin-reports-view" class="admin-subview hidden">
+              <div class="admin-subview-topbar">Reports</div>
+              <div class="admin-reports-card">No reports available.</div>
+            </section>
           </div>
 
-          <div class="mt-5">
-            <article class="surface p-4 md:p-5">
-              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 class="section-title">User Access Control</h2>
-                  <p class="section-subtitle">Reset passwords and activate/deactivate user accounts.</p>
-                </div>
+          <div
+            id="admin-menu-overlay"
+            class="admin-menu-overlay hidden"
+            aria-hidden="true"
+          >
+            <div
+              id="admin-menu-backdrop"
+              class="admin-menu-backdrop"
+            ></div>
 
-                <button
-                  id="user-refresh-button"
-                  class="secondary-btn btn-inline"
-                  type="button"
-                >
-                  Refresh Users
-                </button>
-              </div>
-
-              <div class="table-toolbar mt-4">
-                <label class="table-filter-field">
-                  <span>Search</span>
-                  <input
-                    id="user-search-input"
-                    type="text"
-                    placeholder="Username or display name"
-                    class="field-input"
-                  />
-                </label>
-                <label class="table-filter-field">
-                  <span>User Filter</span>
-                  <select
-                    id="user-status-filter"
-                    class="field-input"
-                  >
-                    <option value="all">All users</option>
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                    <option value="admin">Admins</option>
-                    <option value="cashier">Cashiers</option>
-                  </select>
-                </label>
-              </div>
-
-              <div class="table-wrap mt-3">
-                <table class="responsive-table w-full text-sm">
-                  <thead>
-                    <tr class="bg-dune-50 text-left text-xs uppercase tracking-[0.11em] text-slate-600">
-                      <th class="px-3 py-3">Username</th>
-                      <th class="px-3 py-3">Display Name</th>
-                      <th class="px-3 py-3">Role</th>
-                      <th class="px-3 py-3">Status</th>
-                      <th class="px-3 py-3">Last Login</th>
-                      <th class="px-3 py-3">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody id="user-table-body">
-                    <tr class="table-empty-row">
-                      <td
-                        colspan="6"
-                        class="px-4 py-4 text-center text-slate-500"
-                      >
-                        User list will load when this tab opens.
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </article>
-          </div>
-
-          <article class="surface mt-5 p-4 md:p-5">
-            <h2 class="section-title">Payment Settings</h2>
-            <p class="section-subtitle">Configure dynamic UPI details for this shop. Checkout QR updates automatically.</p>
-
-            <form
-              id="payment-settings-form"
-              class="mt-4 space-y-3 form-stack"
+            <aside
+              id="admin-menu-sheet"
+              class="admin-menu-sheet"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="admin-menu-title"
             >
-              <label class="text-sm font-medium text-slate-700">
-                UPI ID
-                <input
-                  id="payment-upi-id"
-                  required
-                  type="text"
-                  placeholder="example@bank"
-                  class="field-input mt-1"
-                />
-              </label>
+              <div class="admin-menu-scroll">
+                <header class="admin-menu-head">
+                  <div class="admin-menu-head-left">
+                    <button
+                      id="admin-menu-back-button"
+                      class="link-btn admin-menu-back hidden"
+                      type="button"
+                      aria-label="Back"
+                    >
+                      <svg viewBox="0 0 24 24">
+                        <path
+                          d="M15 6l-6 6 6 6"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        ></path>
+                      </svg>
+                    </button>
+                    <h2
+                      id="admin-menu-title"
+                      class="section-title"
+                    >
+                      Menu
+                    </h2>
+                  </div>
+                  <button
+                    id="admin-menu-close-button"
+                    class="link-btn admin-menu-close"
+                    type="button"
+                    aria-label="Close"
+                  >
+                    <svg viewBox="0 0 24 24">
+                      <path
+                        d="M6 6l12 12M18 6L6 18"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                      ></path>
+                    </svg>
+                  </button>
+                </header>
 
-              <label class="text-sm font-medium text-slate-700">
-                Optional QR Image
-                <input
-                  id="payment-qr-file"
-                  type="file"
-                  accept="image/*"
-                  class="field-input mt-1"
-                />
-              </label>
-
-              <p
-                id="payment-qr-hint"
-                class="text-xs text-slate-500"
-              >
-                Leave empty to use dynamic QR generated from UPI ID and bill amount.
-              </p>
-
-              <div
-                id="payment-qr-preview-wrap"
-                class="payment-qr-preview-wrap hidden"
-              >
-                <img
-                  id="payment-qr-preview"
-                  alt="Saved payment QR"
-                />
-              </div>
-
-              <div class="grid gap-2 sm:grid-cols-2">
-                <button
-                  id="payment-settings-save"
-                  class="primary-btn"
-                  type="submit"
+                <section
+                  id="admin-menu-page-main"
+                  class="admin-menu-page"
                 >
-                  Save Payment Settings
-                </button>
-                <button
-                  id="payment-settings-remove-qr"
-                  class="secondary-btn"
-                  type="button"
+                  <div class="admin-menu-main-actions">
+                    <button
+                      id="admin-menu-open-settings"
+                      class="secondary-btn admin-menu-action"
+                      type="button"
+                    >
+                      <span class="btn-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24">
+                          <path
+                            d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                          ></path>
+                          <path
+                            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          ></path>
+                        </svg>
+                      </span>
+                      Settings
+                    </button>
+                    <button
+                      id="admin-menu-open-inventory"
+                      class="secondary-btn admin-menu-action"
+                      type="button"
+                    >
+                      <span class="btn-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24">
+                          <path
+                            d="M4 7l8-4 8 4-8 4-8-4zM4 7v10l8 4 8-4V7"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linejoin="round"
+                          ></path>
+                        </svg>
+                      </span>
+                      Inventory Management
+                    </button>
+                  </div>
+                </section>
+
+                <!-- BOTTOM NAV -->
+                <nav class="admin-bottom-nav">
+                  <button class="admin-bottom-nav-btn" data-nav="dashboard">🏠<span>Dashboard</span></button>
+                  <button class="admin-bottom-nav-btn" data-nav="billing">🧾<span>Billing</span></button>
+                  <button class="admin-bottom-nav-btn" data-nav="admin" aria-current="page">⚙️<span>Admin</span></button>
+                </nav>
+
+                <section
+                  id="admin-menu-page-settings"
+                  class="admin-menu-page hidden"
                 >
-                  Remove Uploaded QR
-                </button>
+                  <article class="surface admin-menu-card p-4">
+                    <div class="admin-card-head">
+                      <h2 class="section-title">User Access Control</h2>
+                      <p class="section-subtitle">Reset passwords and activate/deactivate user accounts.</p>
+                    </div>
+
+                    <button
+                      id="user-refresh-button"
+                      class="secondary-btn admin-stretch-btn"
+                      type="button"
+                    >
+                      <span class="btn-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24">
+                          <path
+                            d="M20 12a8 8 0 0 0-14.9-4M4 12a8 8 0 0 0 14.9 4"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          ></path>
+                          <path
+                            d="M5 4v4h4M19 20v-4h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          ></path>
+                        </svg>
+                      </span>
+                      Refresh Users
+                    </button>
+
+                    <div class="table-toolbar mt-4">
+                      <label class="table-filter-field">
+                        <span>Search</span>
+                        <input
+                          id="user-search-input"
+                          type="text"
+                          placeholder="Username or display name"
+                          class="field-input"
+                        />
+                      </label>
+                      <label class="table-filter-field">
+                        <span>User Filter</span>
+                        <select
+                          id="user-status-filter"
+                          class="field-input"
+                        >
+                          <option value="all">All users</option>
+                          <option value="active">Active</option>
+                          <option value="inactive">Inactive</option>
+                          <option value="admin">Admins</option>
+                          <option value="cashier">Cashiers</option>
+                        </select>
+                      </label>
+                    </div>
+
+                    <div class="table-wrap mt-3">
+                      <table class="responsive-table w-full text-sm">
+                        <thead>
+                          <tr class="bg-dune-50 text-left text-xs uppercase tracking-[0.11em] text-slate-600">
+                            <th class="px-3 py-3">Username</th>
+                            <th class="px-3 py-3">Display Name</th>
+                            <th class="px-3 py-3">Role</th>
+                            <th class="px-3 py-3">Status</th>
+                            <th class="px-3 py-3">Last Login</th>
+                            <th class="px-3 py-3">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody id="user-table-body">
+                          <tr class="table-empty-row">
+                            <td
+                              colspan="6"
+                              class="px-4 py-4 text-center text-slate-500"
+                            >
+                              No users found.
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </article>
+
+                  <article class="surface admin-menu-card mt-4 p-4">
+                    <div class="admin-card-head">
+                      <h2 class="section-title">Payment Settings</h2>
+                      <p class="section-subtitle">Configure dynamic UPI details for this shop. Checkout QR updates automatically.</p>
+                    </div>
+
+                    <form
+                      id="payment-settings-form"
+                      class="mt-4 space-y-3 form-stack"
+                    >
+                      <label class="text-sm font-medium text-slate-700">
+                        UPI ID
+                        <input
+                          id="payment-upi-id"
+                          required
+                          type="text"
+                          placeholder="example@bank"
+                          class="field-input mt-1"
+                        />
+                      </label>
+
+                      <label class="text-sm font-medium text-slate-700">
+                        Optional QR Image
+                        <input
+                          id="payment-qr-file"
+                          type="file"
+                          accept="image/*"
+                          class="field-input mt-1"
+                        />
+                      </label>
+
+                      <p
+                        id="payment-qr-hint"
+                        class="text-xs text-slate-500"
+                      >
+                        Leave empty to use dynamic QR generated from UPI ID and bill amount.
+                      </p>
+
+                      <div
+                        id="payment-qr-preview-wrap"
+                        class="payment-qr-preview-wrap hidden"
+                      >
+                        <img
+                          id="payment-qr-preview"
+                          alt="Saved payment QR"
+                        />
+                      </div>
+
+                      <button
+                        id="payment-settings-save"
+                        class="primary-btn"
+                        type="submit"
+                      >
+                        Save Payment Settings
+                      </button>
+
+                      <button
+                        id="payment-settings-remove-qr"
+                        class="secondary-btn"
+                        type="button"
+                      >
+                        Remove Uploaded QR
+                      </button>
+                    </form>
+                  </article>
+                </section>
+
+                <section
+                  id="admin-menu-page-inventory"
+                  class="admin-menu-page hidden"
+                >
+                  <article class="surface admin-menu-card p-4">
+                    <div class="admin-card-head">
+                      <h2 class="section-title">Inventory Management</h2>
+                      <p class="section-subtitle">Track stock, update quantities, and deactivate discontinued items.</p>
+                    </div>
+
+                    <div class="table-toolbar mt-4">
+                      <label class="table-filter-field">
+                        <span>Search</span>
+                        <input
+                          id="inventory-search-input"
+                          type="text"
+                          placeholder="Name, barcode, or category"
+                          class="field-input"
+                        />
+                      </label>
+                      <label class="table-filter-field">
+                        <span>Status</span>
+                        <select
+                          id="inventory-status-filter"
+                          class="field-input"
+                        >
+                          <option value="all">All</option>
+                          <option value="active">Active</option>
+                          <option value="inactive">Inactive</option>
+                          <option value="low-stock">Low Stock</option>
+                        </select>
+                      </label>
+                      <label class="table-filter-field">
+                        <span>Sort</span>
+                        <select
+                          id="inventory-sort-select"
+                          class="field-input"
+                        >
+                          <option value="name-asc">Name A-Z</option>
+                          <option value="name-desc">Name Z-A</option>
+                          <option value="stock-asc">Stock Low-High</option>
+                          <option value="stock-desc">Stock High-Low</option>
+                          <option value="price-desc">Price High-Low</option>
+                          <option value="price-asc">Price Low-High</option>
+                        </select>
+                      </label>
+                    </div>
+
+                    <div class="table-wrap mt-3">
+                      <table class="responsive-table inventory-table w-full text-sm">
+                        <thead>
+                          <tr class="bg-dune-50 text-left text-xs uppercase tracking-[0.11em] text-slate-600">
+                            <th class="px-3 py-3">Name</th>
+                            <th class="px-3 py-3">Barcode</th>
+                            <th class="px-3 py-3">Category</th>
+                            <th class="px-3 py-3">Price</th>
+                            <th class="px-3 py-3">Stock</th>
+                            <th class="px-3 py-3">Status</th>
+                            <th class="px-3 py-3">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody id="product-table-body"></tbody>
+                      </table>
+                    </div>
+                  </article>
+                </section>
               </div>
-            </form>
-          </article>
+            </aside>
+          </div>
         </section>
 
         <section
@@ -1016,91 +1084,398 @@
       <div class="modal-card auth-modal-card">
         <h3
           id="auth-modal-title"
-          class="section-title"
+          class="auth-visually-hidden"
         >
-          Sign In to CounterCraft
+          CounterCraft authentication
         </h3>
+
+        <div class="auth-brand">
+          <div class="auth-brand-row">
+            <span
+              class="auth-brand-mark"
+              aria-hidden="true"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle
+                  cx="9"
+                  cy="20"
+                  r="1"
+                ></circle>
+                <circle
+                  cx="16"
+                  cy="20"
+                  r="1"
+                ></circle>
+                <path d="M3 4h2l1.4 9.2a2 2 0 0 0 2 1.7h7.7a2 2 0 0 0 2-1.6L20 7H7.2"></path>
+              </svg>
+            </span>
+            <span class="auth-brand-name">CounterCraft</span>
+          </div>
+          <p class="auth-brand-subtitle">Welcome back to your store</p>
+        </div>
 
         <form
           id="auth-form"
-          class="mt-4 space-y-3 auth-form-layout"
+          class="auth-form-layout"
         >
-          <section class="auth-login-panel">
-            <p class="auth-login-copy">Login with your admin or cashier account.</p>
+          <section
+            id="auth-login-view"
+            class="auth-view"
+          >
+            <div class="auth-panel-card">
+              <p class="auth-login-copy">Login with your admin or cashier account</p>
 
-            <label class="text-sm font-medium text-slate-700">
-              Username
-              <input
-                id="auth-username"
-                type="text"
-                autocomplete="username"
-                class="field-input mt-1"
-                required
-              />
-            </label>
+              <label
+                class="auth-field-label"
+                for="auth-username"
+                >Username</label
+              >
+              <div class="auth-input-wrap">
+                <span
+                  class="auth-input-icon"
+                  aria-hidden="true"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M20 21a8 8 0 0 0-16 0"></path>
+                    <circle
+                      cx="12"
+                      cy="7"
+                      r="4"
+                    ></circle>
+                  </svg>
+                </span>
+                <input
+                  id="auth-username"
+                  type="text"
+                  autocomplete="username"
+                  class="field-input auth-input"
+                  placeholder="Enter your username"
+                  required
+                />
+              </div>
 
-            <label class="text-sm font-medium text-slate-700">
-              Password
-              <input
-                id="auth-password"
-                type="password"
-                autocomplete="current-password"
-                class="field-input mt-1"
-                required
-              />
-            </label>
+              <label
+                class="auth-field-label"
+                for="auth-password"
+                >Password</label
+              >
+              <div class="auth-input-wrap">
+                <span
+                  class="auth-input-icon"
+                  aria-hidden="true"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <rect
+                      x="5"
+                      y="11"
+                      width="14"
+                      height="10"
+                      rx="2"
+                    ></rect>
+                    <path d="M8 11V8a4 4 0 0 1 8 0v3"></path>
+                  </svg>
+                </span>
+                <input
+                  id="auth-password"
+                  type="password"
+                  autocomplete="current-password"
+                  class="field-input auth-input auth-password-input"
+                  placeholder="Enter your password"
+                  required
+                />
+                <button
+                  id="auth-password-toggle"
+                  class="auth-password-toggle"
+                  type="button"
+                  aria-label="Show password"
+                  aria-pressed="false"
+                >
+                  <span
+                    class="auth-eye-open"
+                    aria-hidden="true"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"></path>
+                      <circle
+                        cx="12"
+                        cy="12"
+                        r="3"
+                      ></circle>
+                    </svg>
+                  </span>
+                  <span
+                    class="auth-eye-off"
+                    aria-hidden="true"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M3 3l18 18"></path>
+                      <path d="M10.58 10.58a2 2 0 1 0 2.84 2.84"></path>
+                      <path d="M9.88 5.09A10.86 10.86 0 0 1 12 5c6.5 0 10 7 10 7a17.22 17.22 0 0 1-3.13 3.88"></path>
+                      <path d="M6.61 6.61C4.62 8.07 3.3 10 2 12c0 0 3.5 7 10 7a9.76 9.76 0 0 0 5.39-1.61"></path>
+                    </svg>
+                  </span>
+                </button>
+              </div>
 
-            <p class="auth-forgot-note">Forgot password?</p>
+              <button
+                type="button"
+                class="auth-forgot-note"
+              >
+                Forgot password?
+              </button>
+
+              <button
+                id="auth-login-button"
+                class="auth-cta-btn"
+                type="submit"
+              >
+                Login
+              </button>
+            </div>
+
+            <div class="auth-divider"></div>
+            <p class="auth-switch-row">
+              First time here?
+              <button
+                id="auth-show-setup"
+                class="auth-switch-btn"
+                type="button"
+              >
+                Create First Admin
+              </button>
+            </p>
           </section>
 
-          <section class="auth-shop-panel rounded-2xl border border-dune-200 bg-dune-50 p-3">
-            <p class="auth-shop-title text-xs font-semibold uppercase tracking-[0.11em] text-slate-600">New Shop Setup</p>
-            <p class="mt-1 text-xs text-slate-500">Required only when creating the first admin account.</p>
+          <section
+            id="auth-setup-view"
+            class="auth-view hidden"
+          >
+            <div class="auth-panel-card">
+              <p class="auth-shop-title">New Shop Setup</p>
+              <p class="auth-shop-copy">Create your first admin account to get started</p>
 
-            <div class="mt-3 grid gap-3 md:grid-cols-2">
-              <label class="text-sm font-medium text-slate-700">
-                Shop Name
+              <p class="auth-credential-note">Set admin login credentials</p>
+
+              <label
+                class="auth-field-label"
+                for="auth-setup-username"
+                >Admin Username</label
+              >
+              <div class="auth-input-wrap">
+                <span
+                  class="auth-input-icon"
+                  aria-hidden="true"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M20 21a8 8 0 0 0-16 0"></path>
+                    <circle
+                      cx="12"
+                      cy="7"
+                      r="4"
+                    ></circle>
+                  </svg>
+                </span>
                 <input
-                  id="auth-shop-name"
+                  id="auth-setup-username"
                   type="text"
-                  autocomplete="organization"
-                  class="field-input mt-1"
-                  placeholder="e.g. Sunrise Mart"
+                  autocomplete="username"
+                  class="field-input auth-input auth-input-amber"
+                  placeholder="Choose admin username"
                 />
-              </label>
+              </div>
 
-              <label class="text-sm font-medium text-slate-700">
-                Owner Name
+              <label
+                class="auth-field-label"
+                for="auth-setup-password"
+                >Admin Password</label
+              >
+              <div class="auth-input-wrap">
+                <span
+                  class="auth-input-icon"
+                  aria-hidden="true"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <rect
+                      x="5"
+                      y="11"
+                      width="14"
+                      height="10"
+                      rx="2"
+                    ></rect>
+                    <path d="M8 11V8a4 4 0 0 1 8 0v3"></path>
+                  </svg>
+                </span>
                 <input
-                  id="auth-owner-name"
-                  type="text"
-                  autocomplete="name"
-                  class="field-input mt-1"
-                  placeholder="e.g. Aarav Sharma"
+                  id="auth-setup-password"
+                  type="password"
+                  autocomplete="new-password"
+                  class="field-input auth-input auth-input-amber auth-password-input"
+                  placeholder="Create a strong password"
                 />
-              </label>
+                <button
+                  id="auth-setup-password-toggle"
+                  class="auth-password-toggle"
+                  type="button"
+                  aria-label="Show password"
+                  aria-pressed="false"
+                >
+                  <span
+                    class="auth-eye-open"
+                    aria-hidden="true"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"></path>
+                      <circle
+                        cx="12"
+                        cy="12"
+                        r="3"
+                      ></circle>
+                    </svg>
+                  </span>
+                  <span
+                    class="auth-eye-off"
+                    aria-hidden="true"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M3 3l18 18"></path>
+                      <path d="M10.58 10.58a2 2 0 1 0 2.84 2.84"></path>
+                      <path d="M9.88 5.09A10.86 10.86 0 0 1 12 5c6.5 0 10 7 10 7a17.22 17.22 0 0 1-3.13 3.88"></path>
+                      <path d="M6.61 6.61C4.62 8.07 3.3 10 2 12c0 0 3.5 7 10 7a9.76 9.76 0 0 0 5.39-1.61"></path>
+                    </svg>
+                  </span>
+                </button>
+              </div>
 
-              <label class="text-sm font-medium text-slate-700">
-                Phone Number
-                <input
-                  id="auth-phone"
-                  type="tel"
-                  autocomplete="tel"
-                  class="field-input mt-1"
-                  placeholder="e.g. +919876543210"
-                />
-              </label>
+              <label
+                class="auth-field-label"
+                for="auth-shop-name"
+                >Shop Name</label
+              >
+              <input
+                id="auth-shop-name"
+                type="text"
+                autocomplete="organization"
+                class="field-input auth-input auth-input-amber"
+                placeholder="e.g. Sunrise Mart"
+              />
 
-              <label class="text-sm font-medium text-slate-700">
-                Email
-                <input
-                  id="auth-email"
-                  type="email"
-                  autocomplete="email"
-                  class="field-input mt-1"
-                  placeholder="e.g. owner@shop.com"
-                />
-              </label>
+              <label
+                class="auth-field-label"
+                for="auth-owner-name"
+                >Owner Name</label
+              >
+              <input
+                id="auth-owner-name"
+                type="text"
+                autocomplete="name"
+                class="field-input auth-input auth-input-orange"
+                placeholder="e.g. Aarav Sharma"
+              />
+
+              <label
+                class="auth-field-label"
+                for="auth-phone"
+                >Phone Number</label
+              >
+              <input
+                id="auth-phone"
+                type="tel"
+                autocomplete="tel"
+                class="field-input auth-input auth-input-yellow"
+                placeholder="e.g. +919876543210"
+              />
+
+              <label
+                class="auth-field-label"
+                for="auth-email"
+                >Email</label
+              >
+              <input
+                id="auth-email"
+                type="email"
+                autocomplete="email"
+                class="field-input auth-input auth-input-amber"
+                placeholder="e.g. owner@shop.com"
+              />
+
+              <button
+                id="auth-bootstrap-button"
+                class="auth-cta-btn"
+                type="button"
+              >
+                Create Admin Account
+              </button>
+
+              <button
+                id="auth-back-login"
+                class="auth-back-btn"
+                type="button"
+              >
+                Back to Login
+              </button>
             </div>
           </section>
 
@@ -1108,23 +1483,6 @@
             id="auth-error"
             class="auth-error hidden"
           ></p>
-
-          <div class="auth-actions">
-            <button
-              id="auth-login-button"
-              class="primary-btn"
-              type="submit"
-            >
-              Login
-            </button>
-            <button
-              id="auth-bootstrap-button"
-              class="secondary-btn"
-              type="button"
-            >
-              Create First Admin
-            </button>
-          </div>
         </form>
       </div>
     </div>

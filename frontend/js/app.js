@@ -23,6 +23,7 @@ const state = {
   activeTab: "pos",
   authUser: null,
   authReady: false,
+  authMode: "login",
   paymentMethod: "cash",
   dashboardRange: "daily",
   adminUsersLoaded: false,
@@ -70,6 +71,14 @@ const elements = {
   quickActionsToolbar: document.querySelector(".quick-actions"),
   quickAddProductButton: document.getElementById("quick-add-product"),
   quickSyncButton: document.getElementById("quick-sync"),
+  adminNetworkBadge: document.getElementById("admin-network-badge"),
+  adminPendingBadge: document.getElementById("admin-pending-badge"),
+  adminSyncInfo: document.getElementById("admin-sync-info"),
+  adminAuthUserBadge: document.getElementById("admin-auth-user-badge"),
+  adminMenuButton: document.getElementById("admin-menu-button"),
+  adminLogoutButton: document.getElementById("admin-logout-button"),
+  adminAddSkuButton: document.getElementById("admin-add-sku-button"),
+  adminSyncSalesButton: document.getElementById("admin-sync-sales-button"),
   themeToggleButton: document.getElementById("theme-toggle-button"),
   installAppButton: document.getElementById("install-app-button"),
   appNav: document.getElementById("app-nav"),
@@ -122,6 +131,17 @@ const elements = {
   userTableBody: document.getElementById("user-table-body"),
   userSearchInput: document.getElementById("user-search-input"),
   userStatusFilter: document.getElementById("user-status-filter"),
+  adminMenuOverlay: document.getElementById("admin-menu-overlay"),
+  adminMenuBackdrop: document.getElementById("admin-menu-backdrop"),
+  adminMenuSheet: document.getElementById("admin-menu-sheet"),
+  adminMenuTitle: document.getElementById("admin-menu-title"),
+  adminMenuCloseButton: document.getElementById("admin-menu-close-button"),
+  adminMenuBackButton: document.getElementById("admin-menu-back-button"),
+  adminMenuOpenSettingsButton: document.getElementById("admin-menu-open-settings"),
+  adminMenuOpenInventoryButton: document.getElementById("admin-menu-open-inventory"),
+  adminMenuPageMain: document.getElementById("admin-menu-page-main"),
+  adminMenuPageSettings: document.getElementById("admin-menu-page-settings"),
+  adminMenuPageInventory: document.getElementById("admin-menu-page-inventory"),
 
   dashboardRangeButtons: Array.from(document.querySelectorAll("[data-range]")),
   dashboardMetricsGrid: document.getElementById("dashboard-metrics-grid"),
@@ -211,6 +231,14 @@ const elements = {
   authError: document.getElementById("auth-error"),
   authLoginButton: document.getElementById("auth-login-button"),
   authBootstrapButton: document.getElementById("auth-bootstrap-button"),
+  authShowSetupButton: document.getElementById("auth-show-setup"),
+  authBackToLoginButton: document.getElementById("auth-back-login"),
+  authPasswordToggleButton: document.getElementById("auth-password-toggle"),
+  authSetupPasswordToggleButton: document.getElementById("auth-setup-password-toggle"),
+  authLoginView: document.getElementById("auth-login-view"),
+  authSetupView: document.getElementById("auth-setup-view"),
+  authSetupUsername: document.getElementById("auth-setup-username"),
+  authSetupPassword: document.getElementById("auth-setup-password"),
 
   resetPasswordModal: document.getElementById("reset-password-modal"),
   resetPasswordForm: document.getElementById("reset-password-form"),
@@ -233,6 +261,7 @@ const elements = {
 let upiModalHideTimeoutId = null;
 let upiQrCodeInstance = null;
 let barcodeScanner = null;
+let authCredentialSyncInProgress = false;
 const MIN_PARTIAL_BARCODE_LENGTH = 6;
 const SCANNER_DEBUG_ENABLED =
   ["localhost", "127.0.0.1"].includes(window.location.hostname) ||
@@ -294,6 +323,13 @@ let lastProductListHighlightId = "";
 let productListHighlightTimeoutId = null;
 let silentProductListRefreshPromise = null;
 let lastSilentProductListRefreshAt = 0;
+let adminMenuPage = "main";
+
+const ADMIN_MENU_PAGE_LABELS = {
+  main: "Menu",
+  settings: "Settings",
+  inventory: "Inventory Management",
+};
 
 const ROLE_TAB_ACCESS = {
   admin: ["pos", "admin", "dashboard", "history"],
@@ -902,7 +938,13 @@ function getFocusableElements(container) {
     container.querySelectorAll(
       'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
     )
-  ).filter((entry) => entry instanceof HTMLElement && !entry.hasAttribute("hidden"));
+  ).filter(
+    (entry) =>
+      entry instanceof HTMLElement &&
+      !entry.hasAttribute("hidden") &&
+      !entry.classList.contains("hidden") &&
+      !entry.closest(".hidden")
+  );
 }
 
 function getTopVisibleModal() {
@@ -914,6 +956,7 @@ function getTopVisibleModal() {
     elements.billModal,
     elements.upiModal,
     elements.scannerModal,
+    elements.adminMenuOverlay,
     elements.authModal,
   ];
 
@@ -957,6 +1000,11 @@ function closeModalByElement(modalElement) {
 
   if (modalElement === elements.scannerModal) {
     closeScannerModal();
+    return;
+  }
+
+  if (modalElement === elements.adminMenuOverlay) {
+    closeAdminMenu();
     return;
   }
 
@@ -1736,12 +1784,132 @@ function setAuthError(message = "") {
   elements.authError.classList.toggle("hidden", !text);
 }
 
+function getAuthCredentials({ preferSetup = false } = {}) {
+  const loginUsername = String(elements.authUsername?.value || "").trim();
+  const loginPassword = String(elements.authPassword?.value || "");
+  const setupUsername = String(elements.authSetupUsername?.value || "").trim();
+  const setupPassword = String(elements.authSetupPassword?.value || "");
+
+  if (preferSetup) {
+    return {
+      username: setupUsername || loginUsername,
+      password: setupPassword || loginPassword,
+    };
+  }
+
+  return {
+    username: loginUsername || setupUsername,
+    password: loginPassword || setupPassword,
+  };
+}
+
+function syncAuthCredentialInputs(source = "login") {
+  if (authCredentialSyncInProgress) {
+    return;
+  }
+
+  authCredentialSyncInProgress = true;
+
+  try {
+    if (source === "setup") {
+      if (elements.authUsername && elements.authSetupUsername) {
+        elements.authUsername.value = elements.authSetupUsername.value;
+      }
+      if (elements.authPassword && elements.authSetupPassword) {
+        elements.authPassword.value = elements.authSetupPassword.value;
+      }
+      return;
+    }
+
+    if (elements.authUsername && elements.authSetupUsername) {
+      elements.authSetupUsername.value = elements.authUsername.value;
+    }
+    if (elements.authPassword && elements.authSetupPassword) {
+      elements.authSetupPassword.value = elements.authPassword.value;
+    }
+  } finally {
+    authCredentialSyncInProgress = false;
+  }
+}
+
+function setAuthPasswordVisibility(isVisible, mode = "login") {
+  const setupMode = mode === "setup";
+  const input = setupMode ? elements.authSetupPassword : elements.authPassword;
+  const toggleButton = setupMode ? elements.authSetupPasswordToggleButton : elements.authPasswordToggleButton;
+
+  if (!input || !toggleButton) {
+    return;
+  }
+
+  const visible = Boolean(isVisible);
+  input.type = visible ? "text" : "password";
+  toggleButton.classList.toggle("is-visible", visible);
+  toggleButton.setAttribute("aria-pressed", String(visible));
+  toggleButton.setAttribute("aria-label", visible ? "Hide password" : "Show password");
+}
+
+function toggleAuthPasswordVisibility(mode = "login") {
+  const setupMode = mode === "setup";
+  const input = setupMode ? elements.authSetupPassword : elements.authPassword;
+
+  if (!input) {
+    return;
+  }
+
+  setAuthPasswordVisibility(input.type !== "text", mode);
+}
+
+function setAuthMode(mode = "login") {
+  const resolvedMode = mode === "setup" ? "setup" : "login";
+  const isSetupMode = resolvedMode === "setup";
+
+  state.authMode = resolvedMode;
+
+  if (elements.authLoginView) {
+    elements.authLoginView.classList.toggle("hidden", isSetupMode);
+  }
+
+  if (elements.authSetupView) {
+    elements.authSetupView.classList.toggle("hidden", !isSetupMode);
+  }
+
+  setAuthPasswordVisibility(false, "login");
+  setAuthPasswordVisibility(false, "setup");
+  setAuthError("");
+
+  if (elements.authModal?.classList.contains("hidden")) {
+    return;
+  }
+
+  if (isSetupMode) {
+    syncAuthCredentialInputs("login");
+    if (elements.authSetupUsername?.value?.trim()) {
+      elements.authSetupPassword?.focus();
+    } else {
+      elements.authSetupUsername?.focus();
+    }
+    return;
+  }
+
+  syncAuthCredentialInputs("setup");
+  if (elements.authUsername?.value?.trim()) {
+    elements.authPassword?.focus();
+  } else {
+    elements.authUsername?.focus();
+  }
+}
+
 function setAuthLoadingState(isLoading, mode = "login") {
-  elements.authLoginButton.disabled = isLoading;
-  elements.authBootstrapButton.disabled = isLoading;
-  elements.authLoginButton.textContent = isLoading && mode === "login" ? "Signing in..." : "Login";
-  elements.authBootstrapButton.textContent =
-    isLoading && mode === "bootstrap" ? "Creating account..." : "Create First Admin";
+  if (elements.authLoginButton) {
+    elements.authLoginButton.disabled = isLoading;
+    elements.authLoginButton.textContent = isLoading && mode === "login" ? "Signing in..." : "Login";
+  }
+
+  if (elements.authBootstrapButton) {
+    elements.authBootstrapButton.disabled = isLoading;
+    elements.authBootstrapButton.textContent =
+      isLoading && mode === "bootstrap" ? "Creating account..." : "Create Admin Account";
+  }
 }
 
 function formatAuthValidationError(error, fallbackMessage = "Authentication failed") {
@@ -1777,8 +1945,9 @@ function formatAuthValidationError(error, fallbackMessage = "Authentication fail
 }
 
 function buildOnboardingRegistrationPayload() {
-  const username = String(elements.authUsername?.value || "").trim();
-  const password = String(elements.authPassword?.value || "");
+  const credentials = getAuthCredentials({ preferSetup: true });
+  const username = credentials.username;
+  const password = credentials.password;
   const name = String(elements.authShopName?.value || "").trim();
   const ownerName = String(elements.authOwnerName?.value || "").trim();
   const phone = String(elements.authPhone?.value || "").trim();
@@ -1815,15 +1984,16 @@ function openAuthModal(message = "") {
   if (elements.authModal.classList.contains("hidden")) {
     rememberModalFocus(elements.authModal);
   }
-  setAuthError(message);
   elements.authModal.classList.remove("hidden");
-  elements.authUsername.focus();
+  setAuthMode("login");
+  setAuthError(message);
 }
 
 function closeAuthModal() {
   elements.authModal.classList.add("hidden");
   setAuthError("");
   setAuthLoadingState(false);
+  setAuthMode("login");
   restoreModalFocus(elements.authModal);
 }
 
@@ -1957,6 +2127,109 @@ function closeSetStockModal() {
   restoreModalFocus(elements.stockModal);
 }
 
+function syncAdminRuntimeMirror() {
+  if (elements.adminSyncInfo) {
+    elements.adminSyncInfo.textContent = elements.syncInfo?.textContent || "Synced never";
+  }
+
+  if (elements.adminPendingBadge) {
+    const pendingCount = getPendingSales().length;
+    elements.adminPendingBadge.textContent = `${pendingCount} pending`;
+    elements.adminPendingBadge.classList.toggle("badge-attention", pendingCount > 0);
+  }
+
+  if (elements.adminNetworkBadge) {
+    const online = navigator.onLine;
+    elements.adminNetworkBadge.textContent = online ? "Online" : "Offline";
+    elements.adminNetworkBadge.classList.toggle("badge-online", online);
+    elements.adminNetworkBadge.classList.toggle("badge-offline", !online);
+  }
+
+  if (elements.adminAuthUserBadge) {
+    const user = state.authUser;
+    elements.adminAuthUserBadge.classList.remove("auth-badge-admin", "auth-badge-cashier");
+
+    if (!user) {
+      elements.adminAuthUserBadge.textContent = "Not signed in";
+    } else {
+      const role = String(user.role || "cashier").toLowerCase();
+      const displayName = user.displayName || user.username || "User";
+      elements.adminAuthUserBadge.textContent = `${displayName} (${role})`;
+      elements.adminAuthUserBadge.classList.add(role === "admin" ? "auth-badge-admin" : "auth-badge-cashier");
+    }
+  }
+}
+
+function setAdminMenuPage(pageName = "main") {
+  const normalizedPage = ["main", "settings", "inventory"].includes(pageName) ? pageName : "main";
+  adminMenuPage = normalizedPage;
+
+  if (elements.adminMenuPageMain) {
+    elements.adminMenuPageMain.classList.toggle("hidden", normalizedPage !== "main");
+  }
+
+  if (elements.adminMenuPageSettings) {
+    elements.adminMenuPageSettings.classList.toggle("hidden", normalizedPage !== "settings");
+  }
+
+  if (elements.adminMenuPageInventory) {
+    elements.adminMenuPageInventory.classList.toggle("hidden", normalizedPage !== "inventory");
+  }
+
+  if (elements.adminMenuBackButton) {
+    elements.adminMenuBackButton.classList.toggle("hidden", normalizedPage === "main");
+  }
+
+  if (elements.adminMenuTitle) {
+    elements.adminMenuTitle.textContent = ADMIN_MENU_PAGE_LABELS[normalizedPage] || "Menu";
+  }
+
+  if (elements.adminMenuSheet) {
+    elements.adminMenuSheet.scrollTop = 0;
+  }
+}
+
+function openAdminMenu(initialPage = "main") {
+  if (!elements.adminMenuOverlay || state.authUser?.role !== "admin" || state.activeTab !== "admin") {
+    return;
+  }
+
+  if (elements.adminMenuOverlay.classList.contains("hidden")) {
+    rememberModalFocus(elements.adminMenuOverlay);
+  }
+
+  setAdminMenuPage(initialPage);
+  elements.adminMenuOverlay.classList.remove("hidden");
+  elements.adminMenuOverlay.setAttribute("aria-hidden", "false");
+
+  requestAnimationFrame(() => {
+    const focusTarget =
+      initialPage === "settings"
+        ? elements.userRefreshButton
+        : initialPage === "inventory"
+          ? elements.inventorySearchInput
+          : elements.adminMenuOpenSettingsButton || elements.adminMenuCloseButton;
+
+    focusTarget?.focus();
+  });
+}
+
+function closeAdminMenu() {
+  if (!elements.adminMenuOverlay) {
+    return;
+  }
+
+  if (elements.adminMenuOverlay.classList.contains("hidden")) {
+    setAdminMenuPage("main");
+    return;
+  }
+
+  elements.adminMenuOverlay.classList.add("hidden");
+  elements.adminMenuOverlay.setAttribute("aria-hidden", "true");
+  setAdminMenuPage("main");
+  restoreModalFocus(elements.adminMenuOverlay);
+}
+
 function setAppLocked(isLocked) {
   document.body.classList.toggle("app-locked", Boolean(isLocked));
 }
@@ -2013,12 +2286,25 @@ function updateAuthBadge() {
   if (!user) {
     elements.authUserBadge.textContent = "Not signed in";
     elements.logoutButton.classList.add("hidden");
+    if (elements.adminLogoutButton) {
+      elements.adminLogoutButton.classList.add("hidden");
+    }
     if (elements.quickSyncButton) {
       elements.quickSyncButton.disabled = true;
     }
     if (elements.quickAddProductButton) {
       elements.quickAddProductButton.disabled = true;
     }
+    if (elements.adminSyncSalesButton) {
+      elements.adminSyncSalesButton.disabled = true;
+    }
+    if (elements.adminAddSkuButton) {
+      elements.adminAddSkuButton.disabled = true;
+    }
+    if (elements.adminMenuButton) {
+      elements.adminMenuButton.disabled = true;
+    }
+    syncAdminRuntimeMirror();
     updateAdminOnlyHeaderControls();
     return;
   }
@@ -2028,6 +2314,9 @@ function updateAuthBadge() {
   elements.authUserBadge.textContent = `${displayName} (${role})`;
   elements.authUserBadge.classList.add(role === "admin" ? "auth-badge-admin" : "auth-badge-cashier");
   elements.logoutButton.classList.remove("hidden");
+  if (elements.adminLogoutButton) {
+    elements.adminLogoutButton.classList.remove("hidden");
+  }
 
   if (elements.quickSyncButton) {
     elements.quickSyncButton.disabled = false;
@@ -2037,6 +2326,19 @@ function updateAuthBadge() {
     elements.quickAddProductButton.disabled = role !== "admin";
   }
 
+  if (elements.adminSyncSalesButton) {
+    elements.adminSyncSalesButton.disabled = role !== "admin";
+  }
+
+  if (elements.adminAddSkuButton) {
+    elements.adminAddSkuButton.disabled = role !== "admin";
+  }
+
+  if (elements.adminMenuButton) {
+    elements.adminMenuButton.disabled = role !== "admin";
+  }
+
+  syncAdminRuntimeMirror();
   updateAdminOnlyHeaderControls();
 }
 
@@ -2081,6 +2383,7 @@ async function logoutUser(message = "Logged out") {
   closeBarcodeModal();
   closeSetStockModal();
   closeBillModal();
+  closeAdminMenu();
   setMobileCartOpen(false);
 
   if (state.scannerRunning) {
@@ -2124,8 +2427,10 @@ async function restoreSession() {
 }
 
 async function authenticateWithCredentials({ bootstrap = false } = {}) {
-  const username = String(elements.authUsername?.value || "").trim();
-  const password = String(elements.authPassword?.value || "");
+  const shouldBootstrap = Boolean(bootstrap);
+  const credentials = getAuthCredentials({ preferSetup: shouldBootstrap });
+  const username = String(credentials.username || "").trim();
+  const password = String(credentials.password || "");
 
   if (!username || !password) {
     setAuthError("Username and password are required.");
@@ -2133,7 +2438,7 @@ async function authenticateWithCredentials({ bootstrap = false } = {}) {
   }
 
   const onboardingPayload = buildOnboardingRegistrationPayload();
-  if (bootstrap) {
+  if (shouldBootstrap) {
     const onboardingValidationMessage = getOnboardingValidationMessage(onboardingPayload);
     if (onboardingValidationMessage) {
       setAuthError(onboardingValidationMessage);
@@ -2141,13 +2446,13 @@ async function authenticateWithCredentials({ bootstrap = false } = {}) {
     }
   }
 
-  setAuthLoadingState(true, bootstrap ? "bootstrap" : "login");
+  setAuthLoadingState(true, shouldBootstrap ? "bootstrap" : "login");
   setAuthError("");
 
   try {
     let response;
 
-    if (bootstrap) {
+    if (shouldBootstrap) {
       try {
         response = await api.register(onboardingPayload);
       } catch (error) {
@@ -2169,7 +2474,7 @@ async function authenticateWithCredentials({ bootstrap = false } = {}) {
 
     applyAuthenticatedUser(user);
     await loadInitialData();
-    showToast(bootstrap ? "Admin account created and logged in" : "Login successful", "success");
+    showToast(shouldBootstrap ? "Admin account created and logged in" : "Login successful", "success");
     return true;
   } catch (error) {
     setAuthError(formatAuthValidationError(error, "Authentication failed"));
@@ -2730,6 +3035,7 @@ function openAdminProductCreate() {
     return;
   }
 
+  closeAdminMenu();
   setActiveTab("admin");
   requestAnimationFrame(() => {
     elements.productForm?.querySelector('input[name="name"]')?.focus();
@@ -3119,15 +3425,25 @@ function showToast(message, type = "info") {
 
 function updateSyncInfo() {
   const lastSync = getLastSyncTimestamp();
-  elements.syncInfo.textContent = lastSync
-    ? `Last sync: ${new Date(lastSync).toLocaleString()}`
-    : "Last sync: never";
+  if (!lastSync) {
+    elements.syncInfo.textContent = "Synced never";
+    syncAdminRuntimeMirror();
+    return;
+  }
+
+  const formatted = new Date(lastSync).toLocaleTimeString("en-IN", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  elements.syncInfo.textContent = `Synced ${formatted}`;
+  syncAdminRuntimeMirror();
 }
 
 function updatePendingBadge() {
   const pendingCount = getPendingSales().length;
   elements.pendingBadge.textContent = `${pendingCount} pending`;
   elements.pendingBadge.classList.toggle("badge-attention", pendingCount > 0);
+  syncAdminRuntimeMirror();
   updateCheckoutRuntimeStatus();
 }
 
@@ -3142,6 +3458,7 @@ function updateNetworkBadge() {
     elements.networkBadge.classList.add("badge-offline");
   }
 
+  syncAdminRuntimeMirror();
   updateCheckoutRuntimeStatus();
 }
 
@@ -3151,7 +3468,12 @@ function setActiveTab(tabName) {
     return;
   }
 
+  if (tabName !== "admin") {
+    closeAdminMenu();
+  }
+
   state.activeTab = tabName;
+  document.body.classList.toggle("app-admin-mode", tabName === "admin");
   updateAdminOnlyHeaderControls();
 
   if (tabName !== "pos") {
@@ -3231,6 +3553,11 @@ function renderProductResults() {
   const products = getFilteredProducts();
   clearElementChildren(elements.productResults);
 
+  const productCountLabel = document.getElementById("product-count-label");
+  if (productCountLabel) {
+    productCountLabel.textContent = `${products.length} item${products.length === 1 ? "" : "s"}`;
+  }
+
   if (!products.length) {
     elements.productResults.appendChild(
       createTextElement("p", "No matching products found.", "text-sm text-slate-500 px-3 py-2")
@@ -3241,37 +3568,97 @@ function renderProductResults() {
   products.forEach((product, index) => {
     const stockCount = Math.max(asNumber(product?.stock), 0);
     const isScannedHighlight = String(product?._id || "") === lastProductListHighlightId;
+    const cartItem = state.cart.find((entry) => entry.productId === product?._id);
+    const quantityInCart = Math.max(asNumber(cartItem?.quantity), 0);
+
+    const categoryToken = String(product?.category || "").trim().toLowerCase();
+    let thumbGlyph =
+      "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M5 6h14v13H5zM9 6V4h6v2' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>";
+    if (/cloth|wear|shirt|garment|fashion/.test(categoryToken)) {
+      thumbGlyph =
+        "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M7 5l3 2h4l3-2 2 4-3 2v8H8v-8L5 9l2-4z' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>";
+    } else if (/biscuit|snack|food|cookie/.test(categoryToken)) {
+      thumbGlyph =
+        "<svg viewBox='0 0 24 24' aria-hidden='true'><circle cx='12' cy='12' r='8' fill='none' stroke='currentColor' stroke-width='2'/><circle cx='9' cy='10' r='1'/><circle cx='14' cy='9' r='1'/><circle cx='15' cy='14' r='1'/><circle cx='10' cy='15' r='1'/></svg>";
+    } else if (/stationery|notebook|book|copy/.test(categoryToken)) {
+      thumbGlyph =
+        "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M6 4h10a2 2 0 0 1 2 2v14H8a2 2 0 0 0-2 2V4z' fill='none' stroke='currentColor' stroke-width='2' stroke-linejoin='round'/><path d='M8 4v18' fill='none' stroke='currentColor' stroke-width='2'/></svg>";
+    } else if (/coffee|beverage|drink/.test(categoryToken)) {
+      thumbGlyph =
+        "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M7 7h10v6a4 4 0 0 1-4 4h-2a4 4 0 0 1-4-4V7z' fill='none' stroke='currentColor' stroke-width='2'/><path d='M17 9h2a2 2 0 0 1 0 4h-2' fill='none' stroke='currentColor' stroke-width='2'/><path d='M8 20h8' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>";
+    }
 
     const card = document.createElement("article");
     card.className = `product-card product-card-reveal${isScannedHighlight ? " product-card-scanned" : ""}`;
     card.dataset.productCardId = String(product?._id || "");
     card.style.setProperty("--card-index", String(index));
+    if (stockCount <= 5) {
+      card.classList.add("product-card-low-stock");
+    }
 
     const infoWrap = document.createElement("div");
-    infoWrap.appendChild(createTextElement("h4", product?.name || "Unnamed product", "product-name"));
-    infoWrap.appendChild(
+    infoWrap.className = "product-info-wrap";
+
+    const thumb = document.createElement("span");
+    thumb.className = "product-thumb";
+    thumb.innerHTML = thumbGlyph;
+
+    const infoText = document.createElement("div");
+    infoText.className = "product-info-text";
+    infoText.appendChild(createTextElement("h4", product?.name || "Unnamed product", "product-name"));
+    infoText.appendChild(
       createTextElement(
         "p",
-        `${String(product?.barcode || "") || "-"} • ${String(product?.category || "General")}`,
+        `${String(product?.barcode || "") || "-"} · ${String(product?.category || "General")}`,
         "product-meta"
       )
     );
+
+    const stockMeta = createTextElement(
+      "p",
+      `Stock: ${stockCount}`,
+      `product-stock-meta ${stockCount <= 5 ? "product-stock-low" : "product-stock-ok"}`
+    );
+    infoText.appendChild(stockMeta);
+
+    infoWrap.appendChild(thumb);
+    infoWrap.appendChild(infoText);
 
     const actionsWrap = document.createElement("div");
     actionsWrap.className = "product-actions";
 
     actionsWrap.appendChild(createTextElement("span", formatCurrency(product?.price), "product-price"));
 
-    const addButton = createTextElement(
-      "button",
-      stockCount <= 0 ? "Out of stock" : `Add (${stockCount})`,
-      "add-product-btn"
-    );
-    addButton.type = "button";
-    addButton.dataset.productId = String(product?._id || "");
-    addButton.disabled = stockCount <= 0;
+    if (quantityInCart > 0) {
+      const qtyControl = document.createElement("div");
+      qtyControl.className = "product-qty-control";
 
-    actionsWrap.appendChild(addButton);
+      const decrementButton = createTextElement("button", "-", "qty-btn");
+      decrementButton.type = "button";
+      decrementButton.dataset.productAction = "decrement";
+      decrementButton.dataset.productId = String(product?._id || "");
+
+      const quantityLabel = createTextElement("span", quantityInCart, "product-qty-value");
+
+      const incrementButton = createTextElement("button", "+", "qty-btn");
+      incrementButton.type = "button";
+      incrementButton.dataset.productAction = "increment";
+      incrementButton.dataset.productId = String(product?._id || "");
+      incrementButton.disabled = stockCount <= quantityInCart;
+
+      qtyControl.appendChild(decrementButton);
+      qtyControl.appendChild(quantityLabel);
+      qtyControl.appendChild(incrementButton);
+      actionsWrap.appendChild(qtyControl);
+    } else {
+      const addButton = createTextElement("button", stockCount <= 0 ? "Out" : "Add", "add-product-btn");
+      addButton.type = "button";
+      addButton.dataset.productAction = "add";
+      addButton.dataset.productId = String(product?._id || "");
+      addButton.disabled = stockCount <= 0;
+      actionsWrap.appendChild(addButton);
+    }
+
     card.appendChild(infoWrap);
     card.appendChild(actionsWrap);
     elements.productResults.appendChild(card);
@@ -6106,16 +6493,70 @@ function bindEvents() {
 
   elements.authForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    await authenticateWithCredentials({ bootstrap: false });
+    await authenticateWithCredentials({ bootstrap: state.authMode === "setup" });
   });
 
   elements.authBootstrapButton.addEventListener("click", async () => {
     await authenticateWithCredentials({ bootstrap: true });
   });
 
+  if (elements.authShowSetupButton) {
+    elements.authShowSetupButton.addEventListener("click", () => {
+      setAuthMode("setup");
+    });
+  }
+
+  if (elements.authBackToLoginButton) {
+    elements.authBackToLoginButton.addEventListener("click", () => {
+      setAuthMode("login");
+    });
+  }
+
+  if (elements.authPasswordToggleButton) {
+    elements.authPasswordToggleButton.addEventListener("click", () => {
+      toggleAuthPasswordVisibility("login");
+    });
+  }
+
+  if (elements.authSetupPasswordToggleButton) {
+    elements.authSetupPasswordToggleButton.addEventListener("click", () => {
+      toggleAuthPasswordVisibility("setup");
+    });
+  }
+
+  if (elements.authUsername) {
+    elements.authUsername.addEventListener("input", () => {
+      syncAuthCredentialInputs("login");
+    });
+  }
+
+  if (elements.authPassword) {
+    elements.authPassword.addEventListener("input", () => {
+      syncAuthCredentialInputs("login");
+    });
+  }
+
+  if (elements.authSetupUsername) {
+    elements.authSetupUsername.addEventListener("input", () => {
+      syncAuthCredentialInputs("setup");
+    });
+  }
+
+  if (elements.authSetupPassword) {
+    elements.authSetupPassword.addEventListener("input", () => {
+      syncAuthCredentialInputs("setup");
+    });
+  }
+
   elements.logoutButton.addEventListener("click", () => {
     void logoutUser("Logged out successfully.");
   });
+
+  if (elements.adminLogoutButton) {
+    elements.adminLogoutButton.addEventListener("click", () => {
+      void logoutUser("Logged out successfully.");
+    });
+  }
 
   if (elements.quickAddProductButton) {
     elements.quickAddProductButton.addEventListener("click", () => {
@@ -6123,13 +6564,72 @@ function bindEvents() {
     });
   }
 
+  if (elements.adminAddSkuButton) {
+    elements.adminAddSkuButton.addEventListener("click", () => {
+      openAdminProductCreate();
+    });
+  }
+
+  const handleManualSyncClick = () => {
+    if (!navigator.onLine) {
+      showToast("You are offline. Sync will resume automatically when online.", "warning");
+      return;
+    }
+
+    void syncPendingSales();
+  };
+
   if (elements.quickSyncButton) {
-    elements.quickSyncButton.addEventListener("click", () => {
-      if (!navigator.onLine) {
-        showToast("You are offline. Sync will resume automatically when online.", "warning");
+    elements.quickSyncButton.addEventListener("click", handleManualSyncClick);
+  }
+
+  if (elements.adminSyncSalesButton) {
+    elements.adminSyncSalesButton.addEventListener("click", handleManualSyncClick);
+  }
+
+  if (elements.adminMenuButton) {
+    elements.adminMenuButton.addEventListener("click", () => {
+      if (isModalVisible(elements.adminMenuOverlay)) {
+        closeAdminMenu();
         return;
       }
-      void syncPendingSales();
+
+      openAdminMenu("main");
+    });
+  }
+
+  if (elements.adminMenuCloseButton) {
+    elements.adminMenuCloseButton.addEventListener("click", () => {
+      closeAdminMenu();
+    });
+  }
+
+  if (elements.adminMenuBackdrop) {
+    elements.adminMenuBackdrop.addEventListener("click", () => {
+      closeAdminMenu();
+    });
+  }
+
+  if (elements.adminMenuBackButton) {
+    elements.adminMenuBackButton.addEventListener("click", () => {
+      if (adminMenuPage === "main") {
+        closeAdminMenu();
+        return;
+      }
+
+      setAdminMenuPage("main");
+    });
+  }
+
+  if (elements.adminMenuOpenSettingsButton) {
+    elements.adminMenuOpenSettingsButton.addEventListener("click", () => {
+      setAdminMenuPage("settings");
+    });
+  }
+
+  if (elements.adminMenuOpenInventoryButton) {
+    elements.adminMenuOpenInventoryButton.addEventListener("click", () => {
+      setAdminMenuPage("inventory");
     });
   }
 
@@ -6281,8 +6781,23 @@ function bindEvents() {
     const target = event.target.closest("[data-product-id]");
     if (!target) return;
 
-    const product = state.products.find((entry) => entry._id === target.dataset.productId);
-    if (product) {
+    const productId = String(target.dataset.productId || "");
+    if (!productId) {
+      return;
+    }
+
+    const product = state.products.find((entry) => entry._id === productId);
+    if (!product) {
+      return;
+    }
+
+    const action = String(target.dataset.productAction || "add").toLowerCase();
+    if (action === "decrement") {
+      updateCartItem(productId, "decrement");
+      return;
+    }
+
+    if (action === "increment" || action === "add") {
       addToCart(product, 1);
     }
   });
@@ -6918,6 +7433,7 @@ async function init() {
   updatePendingBadge();
   updateSyncInfo();
   bindEvents();
+  setAuthMode("login");
   initializeReportDateFilters();
   renderPaymentSettingsForm();
   renderBillPhoneSuggestions();
