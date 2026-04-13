@@ -428,7 +428,20 @@ export default function AdminPage({ onTabChange }: AdminPageProps) {
               <div>
                 <Label htmlFor="barcode" className="text-sm font-medium text-stone-700 mb-1.5 block">Barcode / QR</Label>
                 <div className="flex gap-2">
-                   <Input id="barcode" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="Leave blank to auto-generate" className="h-11 bg-white border-stone-300 focus:border-amber-700 focus:ring-amber-700/10 rounded-lg flex-1" />
+                   <Input id="barcode" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="Type barcode" className="h-11 bg-white border-stone-300 focus:border-amber-700 focus:ring-amber-700/10 rounded-lg flex-1" />
+                   <Button 
+                      variant="outline" 
+                      onClick={() => {
+                        const pCodes = inventory.filter(p => /^P\d+$/.test(p.barcode)).map(p => parseInt(p.barcode.slice(1)));
+                        const nextNum = pCodes.length > 0 ? Math.max(...pCodes) + 1 : 1001;
+                        setBarcode(`P${nextNum}`);
+                      }}
+                      className="h-11 px-3 border-stone-300 text-stone-700 hover:bg-stone-100 font-medium"
+                   >
+                     <QrCode className="w-4 h-4 sm:mr-1.5" />
+                     <span className="hidden sm:inline">No Barcode? Generate QR</span>
+                     <span className="sm:hidden ml-1">Generate</span>
+                   </Button>
                 </div>
                 {barcode && (
                   <div className="p-4 mt-3 bg-stone-50 border border-stone-200 rounded-lg flex flex-col items-center">

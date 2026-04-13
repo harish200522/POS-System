@@ -247,6 +247,8 @@ export const login = asyncHandler(async (req, res) => {
   user.lastLoginAt = new Date();
   await user.save();
 
+  const shop = await Shop.findById(user.shopId);
+
   const token = signAccessToken(user);
   setAccessTokenCookie(res, token);
 
@@ -255,6 +257,7 @@ export const login = asyncHandler(async (req, res) => {
     message: "Login successful",
     data: {
       user: toSafeUser(user),
+      shop: shop ? toSafeShop(shop) : null,
     },
   });
 });
@@ -277,9 +280,14 @@ export const getCurrentUser = asyncHandler(async (req, res) => {
     throw new ApiError(401, "User is not authorized");
   }
 
+  const shop = await Shop.findById(user.shopId);
+
   return res.status(200).json({
     success: true,
-    data: toSafeUser(user),
+    data: {
+      user: toSafeUser(user),
+      shop: shop ? toSafeShop(shop) : null,
+    },
   });
 });
 

@@ -63,10 +63,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const checkAuth = useCallback(async () => {
     try {
       const result = await api.getCurrentUser();
-      if (result.success && result.data) {
+      if (result.success && result.data?.user) {
         setState({
-          user: result.data,
-          shop: null,
+          user: result.data.user,
+          shop: result.data.shop || null,
           isLoggedIn: true,
           isLoading: false,
           error: null,
@@ -98,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLastSyncTimestamp();
         setState({
           user: result.data.user,
-          shop: null,
+          shop: result.data.shop || null,
           isLoggedIn: true,
           isLoading: false,
           error: null,

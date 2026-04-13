@@ -275,13 +275,179 @@ function buildPdfDocument(sales, { title = "Sales Report", range = "" } = {}) {
 // Reports Page Exports (range=daily|weekly|monthly)
 // ══════════════════════════════════════════════════════════
 
+async function fetchReportData(match, shopObjectId) {
+  // Summary
+  const summaryAgg = await Sale.aggregate([
+    { $match: match },
+    {
+      $group: {
+        _id: null,
+        totalRevenue: { $sum: "$total" },
+        totalOrders: { $sum: 1 },
+        totalItems: { $sum: { $sum: "$items.quantity" } }
+      }
+    }
+  ]);
+
+  let summary = summaryAgg[0] || { totalRevenue: 0, totalOrders: 0, totalItems: 0 };
+  summary.avgTicketSize = summary.totalOrders > 0 ? summary.totalRevenue / summary.totalOrders : 0;
+
+  // Products Sold
+  const productsSold = await Sale.aggregate([
+    { $match: match },
+    { $unwind: "$items" },
+    {
+      $group: {
+        _id: "$items.productId",
+        name: { $first: "$items.name" },
+        qty: { $sum: "$items.quantity" },
+        revenue: { $sum: "$items.lineTotal" }
+      }
+    },
+    { $sort: { qty: -1 } }
+  ]);
+
+  // Low Stock
+  const lowStock = await Product.find({ shopId: shopObjectId, stock: { $lte: 10 } })
+    .select("name stock")
+    .sort({ stock: 1 })
+    .lean();
+
+  return { summary, productsSold, lowStock };
+}
+
+function reportToCsv(summary, lowStock, productsSold) {
+  let csv = "";
+  
+  // Section 1: Summary
+  csv += "--- SUMMARY ---\n";
+  csv += `Total Revenue,${roundCurrency(summary.totalRevenue)}\n`;
+  csv += `Total Orders,${summary.totalOrders}\n`;
+  csv += `Average Ticket Size,${roundCurrency(summary.avgTicketSize)}\n`;
+  csv += `Total Items Sold,${summary.totalItems}\n\n`;
+
+  // Section 2: Low Stock
+  csv += "--- LOW STOCK ---\n";
+  csv += "Product,Stock\n";
+  if (lowStock.length === 0) {
+    csv += "None,N/A\n";
+  } else {
+    lowStock.forEach(p => {
+      csv += `${escapeCsvField(p.name)},${p.stock}\n`;
+    });
+  }
+  csv += "\n";
+
+  // Section 3: Products Sold
+  csv += "--- PRODUCTS SOLD ---\n";
+  csv += "Product,Qty,Revenue\n";
+  if (productsSold.length === 0) {
+    csv += "None,0,0\n";
+  } else {
+    productsSold.forEach(p => {
+      csv += `${escapeCsvField(p.name)},${p.qty},${roundCurrency(p.revenue)}\n`;
+    });
+  }
+
+  return csv;
+}
+
+function buildReportsPdfDocument(summary, lowStock, productsSold, metadata) {
+  const doc = new PDFDocument({ margin: 40, size: "A4" }); // Portrait is better for summary reports usually
+
+  // Section 1: Header
+  doc.fontSize(18).font("Helvetica-Bold").text(metadata.title, { align: "center" });
+  doc.moveDown(0.3);
+  if (metadata.range) {
+    doc.fontSize(10).font("Helvetica").text(`Period: ${metadata.range}`, { align: "center" });
+  }
+  doc.fontSize(10).font("Helvetica").text(`Generated: ${new Date().toLocaleString()}`, { align: "center" });
+  doc.moveDown(2);
+
+  // Section 2: Summary Metrics
+  doc.fontSize(14).font("Helvetica-Bold").text("Summary Metrics", { underline: true });
+  doc.moveDown(0.5);
+  doc.fontSize(11).font("Helvetica");
+  doc.text(`Total Revenue: INR ${roundCurrency(summary.totalRevenue).toLocaleString()}`);
+  doc.text(`Total Orders: ${summary.totalOrders}`);
+  doc.text(`Average Ticket Size: INR ${roundCurrency(summary.avgTicketSize).toLocaleString()}`);
+  doc.text(`Total Items Sold: ${summary.totalItems}`);
+  doc.moveDown(1.5);
+
+  // Table Helpers
+  function drawTable(title, columns, data) {
+    doc.fontSize(14).font("Helvetica-Bold").text(title, { underline: true });
+    doc.moveDown(0.5);
+
+    if (data.length === 0) {
+      doc.fontSize(10).font("Helvetica").text("No data available.");
+      doc.moveDown(1);
+      return;
+    }
+
+    const startX = doc.page.margins.left;
+    let y = doc.y;
+    const padding = 5;
+
+    // Header 
+    doc.fontSize(10).font("Helvetica-Bold");
+    let x = startX;
+    columns.forEach(col => {
+      doc.text(col.header, x, y, { width: col.width, lineBreak: false });
+      x += col.width;
+    });
+
+    const headerBottomY = y + 12 + padding;
+    doc.moveTo(startX, headerBottomY).lineTo(startX + columns.reduce((s, c) => s + c.width, 0), headerBottomY).stroke();
+    y = headerBottomY + padding;
+
+    // Rows
+    doc.font("Helvetica");
+    data.forEach(row => {
+      if (y > doc.page.height - doc.page.margins.bottom - 20) {
+         doc.addPage();
+         y = doc.page.margins.top;
+      }
+      x = startX;
+      columns.forEach(col => {
+        doc.text(String(row[col.key] || ""), x, y, { width: col.width, lineBreak: false });
+        x += col.width;
+      });
+      y += 15;
+    });
+    doc.y = y + 10;
+  }
+
+  // Section 3: Low Stock
+  drawTable(
+    "Low Stock Products", 
+    [ { header: "Product Name", key: "name", width: 350 }, { header: "Current Stock", key: "stock", width: 100 } ], 
+    lowStock
+  );
+
+  doc.moveDown(1);
+
+  // Section 4: Products Sold
+  drawTable(
+    "Top Products Sold",
+    [ 
+       { header: "Product Name", key: "name", width: 250 }, 
+       { header: "Quantity Sold", key: "qty", width: 100 }, 
+       { header: "Revenue (INR)", key: "revenue", width: 100 } 
+    ],
+    productsSold.map(p => ({ ...p, revenue: roundCurrency(p.revenue).toLocaleString() }))
+  );
+
+  return doc;
+}
+
 export const exportReportsCsv = asyncHandler(async (req, res) => {
   const shopId = getRequestShopId(req);
   const shopObjectId = toShopObjectId(shopId);
   const { match, range } = buildReportsMatch(req.query, shopObjectId);
 
-  const sales = await fetchSales(match);
-  const csv = salesToCsvRows(sales);
+  const { summary, productsSold, lowStock } = await fetchReportData(match, shopObjectId);
+  const csv = reportToCsv(summary, lowStock, productsSold);
 
   const filename = `reports_${range}_${new Date().toISOString().slice(0, 10)}.csv`;
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -294,14 +460,14 @@ export const exportReportsPdf = asyncHandler(async (req, res) => {
   const shopObjectId = toShopObjectId(shopId);
   const { match, range } = buildReportsMatch(req.query, shopObjectId);
 
-  const sales = await fetchSales(match);
+  const { summary, productsSold, lowStock } = await fetchReportData(match, shopObjectId);
 
   const filename = `reports_${range}_${new Date().toISOString().slice(0, 10)}.pdf`;
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
 
-  const doc = buildPdfDocument(sales, {
-    title: "CounterCraft POS — Sales Report",
+  const doc = buildReportsPdfDocument(summary, lowStock, productsSold, {
+    title: "Sales Report",
     range: `${range.charAt(0).toUpperCase() + range.slice(1)}`,
   });
 

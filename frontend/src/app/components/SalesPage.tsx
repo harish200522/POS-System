@@ -31,7 +31,7 @@ interface Transaction {
 }
 
 export default function SalesPage({ onTabChange }: SalesPageProps) {
-  const { user } = useAuth();
+  const { user, shop } = useAuth();
   const [activeTab, setActiveTab] = useState("sales");
   
   // Filters
@@ -121,7 +121,7 @@ export default function SalesPage({ onTabChange }: SalesPageProps) {
         </head>
         <body>
           <div class="header">
-            <h2>CounterCraft POS</h2>
+            <h2>${shop?.name || "CounterCraft POS"}</h2>
             <p>Receipt: ${transaction.billNumber}</p>
             <p>Date: ${new Date(transaction.createdAt).toLocaleString()}</p>
             <p>Payment: ${transaction.paymentMethod.toUpperCase()}</p>
@@ -313,7 +313,7 @@ export default function SalesPage({ onTabChange }: SalesPageProps) {
                 >
                   {/* Receipt Header */}
                   <div className="bg-gradient-to-r from-stone-800 to-stone-900 text-white px-5 py-4 text-center border-b-2 border-dashed border-stone-500">
-                    <h3 className="font-bold text-base tracking-widest">COUNTERCRAFT POS</h3>
+                    <h3 className="font-bold text-base tracking-widest uppercase">{shop?.name || "COUNTERCRAFT POS"}</h3>
                     <p className="text-xs text-stone-300 mt-1 font-medium">RETAIL BILLING SUITE</p>
                   </div>
 
