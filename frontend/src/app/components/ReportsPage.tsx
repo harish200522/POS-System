@@ -148,13 +148,19 @@ export default function ReportsPage({ onTabChange }: ReportsPageProps) {
               ))}
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <Button onClick={() => downloadFile("/reports/export/csv", "reports.csv", { range: timePeriod })} variant="outline" className="w-full h-11 border-blue-300 text-blue-700 font-bold hover:bg-blue-50">
-                <Download className="w-4 h-4 mr-2" /> Download CSV
-              </Button>
-              <Button onClick={() => downloadFile("/reports/export/pdf", "reports.pdf", { range: timePeriod })} variant="outline" className="w-full h-11 border-red-300 text-red-700 font-bold hover:bg-red-50">
-                <Download className="w-4 h-4 mr-2" /> Download PDF
-              </Button>
+            <div className="grid grid-cols-2 gap-3 pt-3">
+              <button
+                onClick={() => downloadFile("/reports/export/csv", "reports.csv", { range: timePeriod })}
+                className="w-full py-3.5 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg hover:shadow-xl active:scale-95 text-sm cursor-pointer"
+              >
+                <Download className="w-5 h-5" /> Download CSV
+              </button>
+              <button
+                onClick={() => downloadFile("/reports/export/pdf", "reports.pdf", { range: timePeriod })}
+                className="w-full py-3.5 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg hover:shadow-xl active:scale-95 text-sm cursor-pointer"
+              >
+                <Download className="w-5 h-5" /> Download PDF
+              </button>
             </div>
           </Card>
         </div>
