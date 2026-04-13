@@ -272,13 +272,13 @@ export default function SalesPage({ onTabChange }: SalesPageProps) {
 
             <div className="grid grid-cols-2 gap-3 pt-3">
               <button 
-                onClick={() => downloadFile("/sales/export/csv", "sales.csv", { from: fromDate ? new Date(fromDate).toISOString() : undefined, to: toDate ? new Date(toDate).toISOString() : undefined, paymentMethod: paymentFilter !== "All" ? paymentFilter.toLowerCase() : undefined })} 
+                onClick={() => downloadFile("/sales/export/csv", "sales.csv", { search: searchQuery || undefined, from: fromDate ? new Date(fromDate).toISOString() : undefined, to: toDate ? new Date(toDate).toISOString() : undefined, paymentMethod: paymentFilter !== "All" ? paymentFilter.toLowerCase() : undefined })} 
                 className="w-full py-3.5 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg hover:shadow-xl active:scale-95 text-sm cursor-pointer"
               >
                 <Download className="w-5 h-5" /> Download CSV
               </button>
               <button 
-                onClick={() => downloadFile("/sales/export/pdf", "sales.pdf", { from: fromDate ? new Date(fromDate).toISOString() : undefined, to: toDate ? new Date(toDate).toISOString() : undefined, paymentMethod: paymentFilter !== "All" ? paymentFilter.toLowerCase() : undefined })} 
+                onClick={() => downloadFile("/sales/export/pdf", "sales.pdf", { search: searchQuery || undefined, from: fromDate ? new Date(fromDate).toISOString() : undefined, to: toDate ? new Date(toDate).toISOString() : undefined, paymentMethod: paymentFilter !== "All" ? paymentFilter.toLowerCase() : undefined })} 
                 className="w-full py-3.5 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg hover:shadow-xl active:scale-95 text-sm cursor-pointer"
               >
                 <Download className="w-5 h-5" /> Download PDF

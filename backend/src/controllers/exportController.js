@@ -63,15 +63,22 @@ function buildSalesMatch(query, shopId) {
     match.paymentMethod = String(query.paymentMethod).toLowerCase();
   }
 
+  if (query.search) {
+    const searchRegex = new RegExp(query.search, "i");
+    match.$or = [
+      { billNumber: searchRegex },
+      { cashier: searchRegex }
+    ];
+  }
+
   return match;
 }
 
 // ── Fetch sales from DB ─────────────────────────────────
 
-async function fetchSales(match, limit = 1000) {
+async function fetchSales(match) {
   return Sale.find(match)
     .sort({ createdAt: -1 })
-    .limit(limit)
     .select(
       "billNumber createdAt paymentMethod items total paidAmount changeDue cashier source subtotal tax discount"
     )
@@ -503,7 +510,7 @@ export const exportSalesPdf = asyncHandler(async (req, res) => {
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
 
   const doc = buildPdfDocument(sales, {
-    title: "CounterCraft POS — Transaction History",
+    title: "Sales Transactions Report",
   });
 
   doc.pipe(res);
