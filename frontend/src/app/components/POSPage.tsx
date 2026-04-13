@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  ShoppingBag, Search, Scan, Home, BarChart3, AlertTriangle, Plus,
+  ShoppingBag, Search, Scan, Home, BarChart3, AlertTriangle, Plus, ScanLine,
   Wifi, WifiOff, Clock, ShoppingCart, TrendingUp, Users, DollarSign,
   Minus, X, History, Package, Loader2,
 } from "lucide-react";
@@ -336,8 +336,8 @@ export default function POSPage({ onTabChange }: POSPageProps) {
                 onClick={() => setIsScannerOpen(true)}
                 className="w-full h-12 lg:h-14 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg rounded-xl font-semibold text-sm lg:text-base transition-all hover:shadow-xl"
               >
-                <Scan className="w-5 h-5 lg:w-6 lg:h-6 mr-2" />
-                Scan Barcode
+                <ScanLine className="w-5 h-5 lg:w-6 lg:h-6 mr-2" />
+                Scan Product
               </Button>
             </div>
           </Card>

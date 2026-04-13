@@ -1,7 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { motion, AnimatePresence } from "motion/react";
-import { X, Camera, AlertCircle, Loader2, RotateCcw } from "lucide-react";
-import { Html5Qrcode } from "html5-qrcode";
+import { X, Camera, ScanLine } from "lucide-react";
+import {
+  BrowserMultiFormatReader,
+  NotFoundException,
+  BarcodeFormat,
+  DecodeHintType,
+} from "@zxing/library";
 
 interface ScannerModalProps {
   isOpen: boolean;
@@ -9,251 +13,227 @@ interface ScannerModalProps {
   onScan: (decodedText: string) => void;
 }
 
-export default function ScannerModal({ isOpen, onClose, onScan }: ScannerModalProps) {
-  const scannerRef = useRef<Html5Qrcode | null>(null);
+export default function ScannerModal({
+  isOpen,
+  onClose,
+  onScan,
+}: ScannerModalProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const readerRef = useRef<BrowserMultiFormatReader | null>(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isStarting, setIsStarting] = useState(false);
 
-  // STEP 4 - Clean Stop Scanner
-  const stopScanner = useCallback(async () => {
-    if (scannerRef.current) {
-      try {
-        const state = scannerRef.current.getState();
-        // State 2 = SCANNING, State 1 = PAUSED
-        if (state === 2 || state === 1) {
-          await scannerRef.current.stop();
-        }
-        scannerRef.current.clear();
-      } catch (err) {
-        console.warn("Scanner stop error:", err);
-      } finally {
-        scannerRef.current = null;
-      }
-    }
-  }, []);
-
-  // STEP 7 - Specific Error Messages
-  const getErrorMessage = (errorName: string): string => {
-    switch (errorName) {
-      case 'NotAllowedError':
-        return 'Camera blocked. Tap the camera icon in your browser address bar and select "Allow", then tap Retry.';
-      case 'NotFoundError':
-        return 'No camera detected on this device.';
-      case 'NotReadableError':
-        return 'Camera is busy. Close other apps using the camera and tap Retry.';
-      case 'OverconstrainedError':
-        return 'Camera configuration failed. Tap Retry to use default camera.';
-      default:
-        return 'Camera error. Please tap Retry or refresh the page.';
-    }
+  const playBeep = () => {
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 1200;
+      osc.type = "square";
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.12);
+    } catch (e) {}
   };
 
-  // STEP 5 - Add permission check
-  const requestCameraPermission = useCallback(async (): Promise<boolean> => {
-    try {
-      if (navigator.permissions) {
-        const permission = await navigator.permissions.query({
-          name: 'camera' as PermissionName
-        });
-        if (permission.state === 'denied') {
-          setError('Camera permission is permanently denied. Please go to browser Settings → Site Settings → Camera and allow access, then refresh the page.');
-          return false;
-        }
+  const stopScanner = useCallback(() => {
+    if (readerRef.current) {
+      try {
+        readerRef.current.reset();
+      } catch (e) {} finally {
+        readerRef.current = null;
       }
-      
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' }
-      });
-      stream.getTracks().forEach(track => track.stop());
-      return true;
-    } catch (err: any) {
-      if (err.name) {
-         setError(getErrorMessage(err.name));
-      } else {
-         setError(`Camera error: ${err.message}`);
-      }
-      return false;
     }
+    setIsScanning(false);
+    setIsLoading(false);
   }, []);
 
   const startScanner = useCallback(async () => {
     try {
       setError(null);
-      setIsStarting(true);
+      setIsLoading(true);
 
-      const hasPermission = await requestCameraPermission();
-      if (!hasPermission) {
-        setIsStarting(false);
-        return;
+      const hints = new Map();
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+        BarcodeFormat.EAN_13,
+        BarcodeFormat.EAN_8,
+        BarcodeFormat.UPC_A,
+        BarcodeFormat.UPC_E,
+        BarcodeFormat.CODE_128,
+        BarcodeFormat.CODE_39,
+        BarcodeFormat.QR_CODE,
+        BarcodeFormat.ITF,
+      ]);
+      hints.set(DecodeHintType.TRY_HARDER, true);
+
+      const codeReader = new BrowserMultiFormatReader(hints, {
+        delayBetweenScanAttempts: 80,
+        delayBetweenScanSuccess: 1500,
+      });
+      readerRef.current = codeReader;
+
+      const devices = await BrowserMultiFormatReader.listVideoInputDevices();
+      
+      if (devices.length === 0) {
+         throw new Error("No camera devices found");
       }
 
-      await stopScanner();
+      // Always prefer back/rear camera on mobile
+      const backCamera =
+        devices.find(
+          (d) =>
+            d.label.toLowerCase().includes("back") ||
+            d.label.toLowerCase().includes("rear") ||
+            d.label.toLowerCase().includes("environment")
+        ) || devices[devices.length - 1];
 
-      const readerElement = document.getElementById("reader");
-      if (!readerElement) {
-        throw new Error("Scanner container not found in DOM.");
-      }
+      setIsLoading(false);
+      setIsScanning(true);
 
-      const html5QrCode = new Html5Qrcode("reader");
-      scannerRef.current = html5QrCode;
-
-      const config = {
-        fps: 10,
-        qrbox: { width: 250, height: 250 },
-        aspectRatio: 1.0,
-        showTorchButtonIfSupported: true,
-        showZoomSliderIfSupported: true,
-        defaultZoomValueIfSupported: 1,
-      };
-
-      // STEP 3 - 3-level fallback
-      try {
-        await html5QrCode.start(
-          { facingMode: { exact: "environment" } },
-          config,
-          (decodedText) => {
-             stopScanner().then(() => onScan(decodedText)).catch(() => onScan(decodedText));
-          },
-          () => {} // Ignore read hits
-        );
-      } catch (err) {
-        try {
-          await html5QrCode.start(
-            { facingMode: "environment" },
-            config,
-            (decodedText) => {
-               stopScanner().then(() => onScan(decodedText)).catch(() => onScan(decodedText));
-            },
-            () => {}
-          );
-        } catch (fallbackErr) {
-          try {
-            await html5QrCode.start(
-              { facingMode: "user" },
-              config,
-              (decodedText) => {
-                 stopScanner().then(() => onScan(decodedText)).catch(() => onScan(decodedText));
-             },
-             () => {}
-            );
-          } catch (finalErr) {
-            setError("Camera access denied. Please grant permissions and try again.");
+      await codeReader.decodeFromVideoDevice(
+        backCamera.deviceId,
+        videoRef.current!,
+        (result, err) => {
+          if (result) {
+            playBeep();
+            if (navigator.vibrate) navigator.vibrate(150);
+            onScan(result.getText());
+            stopScanner();
+            onClose();
+          }
+          if (err && !(err instanceof NotFoundException)) {
+            console.warn("scan attempt:", err.message);
           }
         }
-      }
-
-      setIsStarting(false);
+      );
     } catch (err: any) {
-      setIsStarting(false);
-      setError(err?.message || "Failed to start camera.");
+      setIsLoading(false);
+      setIsScanning(false);
+      if (err.name === "NotAllowedError" || err.message.includes("Permission denied")) {
+        setError("Camera permission denied. Please allow access in your browser settings.");
+      } else if (err.name === "NotFoundError" || err.message.includes("No camera")) {
+        setError("No camera found on this device.");
+      } else if (err.name === "NotReadableError") {
+        setError("Camera is already in use by another application.");
+      } else {
+        setError(err.message || "Camera access failed or device unsupported.");
+      }
     }
-  }, [onScan, requestCameraPermission, stopScanner]);
+  }, [onClose, onScan, stopScanner]);
 
-  // STEP 2 - Delay start on modal open
   useEffect(() => {
-    if (!isOpen) {
-      stopScanner();
-      return;
+    if (isOpen) {
+      const t = setTimeout(startScanner, 350);
+      return () => {
+        clearTimeout(t);
+        stopScanner();
+      };
     }
-
-    const timer = setTimeout(() => {
-      startScanner();
-    }, 300);
-
-    return () => {
-      clearTimeout(timer);
-      stopScanner();
-    };
   }, [isOpen, startScanner, stopScanner]);
 
-  // STEP 6 - Handle retry
-  const handleRetry = async () => {
-    setError(null);
-    setIsStarting(true);
-    await stopScanner();
-    setTimeout(() => {
-      startScanner();
-    }, 500);
+  const handleRetry = () => {
+    stopScanner();
+    setTimeout(startScanner, 300);
   };
 
-  const handleClose = async () => {
-    await stopScanner();
-    onClose();
-  };
+  if (!isOpen) return null;
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <>
-          <motion.div
-             initial={{ opacity: 0 }}
-             animate={{ opacity: 1 }}
-             exit={{ opacity: 0 }}
-             onClick={handleClose}
-             className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
-          ></motion.div>
+    <>
+      <div
+        className="fixed inset-0 z-[60] bg-black/60"
+        onClick={() => {
+          stopScanner();
+          onClose();
+        }}
+      />
 
-          <motion.div
-             initial={{ scale: 0.95, opacity: 0 }}
-             animate={{ scale: 1, opacity: 1 }}
-             exit={{ scale: 0.95, opacity: 0 }}
-             transition={{ type: "spring", damping: 25 }}
-             className="fixed inset-4 md:inset-auto md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-full md:max-w-md bg-white rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col"
+      <div className="fixed bottom-0 left-0 right-0 z-[70] bg-white rounded-t-2xl max-h-[62vh] flex flex-col shadow-2xl">
+        <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mt-3 mb-1" />
+
+        <div className="flex items-center justify-between px-4 py-2">
+          <div className="flex items-center gap-2">
+            <Camera size={18} className="text-blue-600" />
+            <span className="font-semibold text-gray-800 text-sm">
+              Scan Barcode / QR
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              stopScanner();
+              onClose();
+            }}
+            className="p-1 rounded-full hover:bg-gray-100"
           >
-            <div className="flex items-center justify-between p-4 border-b border-stone-100">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 bg-blue-50 text-blue-600 rounded-lg">
-                  <Camera className="w-5 h-5" />
-                </div>
-                <h2 className="text-lg font-bold text-stone-800">Scan Barcode / QR</h2>
+            <X size={18} className="text-gray-500" />
+          </button>
+        </div>
+
+        <div
+          className="relative mx-4 rounded-xl overflow-hidden bg-black"
+          style={{ height: "240px" }}
+        >
+          <video
+            ref={videoRef}
+            className="w-full h-full object-cover"
+            muted
+            playsInline
+          />
+          {isScanning && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="relative w-48 h-32">
+                <div className="absolute top-0 left-0 w-6 h-6 border-t-2 border-l-2 border-green-400 rounded-tl" />
+                <div className="absolute top-0 right-0 w-6 h-6 border-t-2 border-r-2 border-green-400 rounded-tr" />
+                <div className="absolute bottom-0 left-0 w-6 h-6 border-b-2 border-l-2 border-green-400 rounded-bl" />
+                <div className="absolute bottom-0 right-0 w-6 h-6 border-b-2 border-r-2 border-green-400 rounded-br" />
+                <div className="absolute left-0 right-0 h-0.5 bg-green-400 animate-scan-line" />
               </div>
+            </div>
+          )}
+          {isLoading && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70">
+              <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin mb-2" />
+              <span className="text-white text-xs">Starting camera...</span>
+            </div>
+          )}
+          {error && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 px-4">
+              <div className="text-red-400 text-2xl mb-2">⚠️</div>
+              <p className="text-white text-xs text-center mb-3">{error}</p>
               <button
-                onClick={handleClose}
-                className="p-2 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-full transition-colors"
-                disabled={isStarting}
+                onClick={handleRetry}
+                className="bg-blue-600 text-white text-xs px-4 py-2 rounded-lg"
               >
-                <X className="w-5 h-5" />
+                Retry Camera
               </button>
             </div>
+          )}
+        </div>
 
-            <div className="flex-1 p-6 relative bg-stone-50 min-h-[350px] flex items-center justify-center flex-col">
-              {error ? (
-                <div className="text-center p-4">
-                  <AlertCircle className="w-10 h-10 text-red-500 mx-auto mb-3" />
-                  <p className="text-sm font-semibold text-stone-800 mb-1">Camera Error</p>
-                  <p className="text-sm text-stone-600 mb-6">{error}</p>
-                  <button 
-                    onClick={handleRetry}
-                    className="flex items-center gap-2 mx-auto px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium text-sm"
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                    Retry Camera
-                  </button>
-                </div>
-              ) : (
-                <div className="w-full relative shadow-inner rounded-xl overflow-hidden border-2 border-stone-300 bg-black min-h-[250px] flex items-center justify-center">
-                  <div id="reader" className="w-full absolute inset-0 text-white" />
-                  
-                  {isStarting && (
-                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm">
-                      <Loader2 className="w-8 h-8 text-blue-500 animate-spin mb-3" />
-                      <p className="text-sm text-white font-medium">Initializing camera...</p>
-                    </div>
-                  )}
-                </div>
-              )}
-              
-              {!error && (
-                <div className="mt-4 text-center">
-                  <p className="text-xs font-semibold tracking-wide text-stone-500 uppercase">
-                    Align code within the frame
-                  </p>
-                </div>
-              )}
-            </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
+        <p className="text-center text-xs text-gray-500 mt-2 mb-1">
+          Point camera at any barcode or QR code
+        </p>
+
+        <div className="px-4 pb-6 pt-1">
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="Or type barcode manually..."
+            className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:border-blue-400"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && e.currentTarget.value.trim()) {
+                onScan(e.currentTarget.value.trim());
+                stopScanner();
+                onClose();
+              }
+            }}
+          />
+        </div>
+      </div>
+    </>
   );
 }
