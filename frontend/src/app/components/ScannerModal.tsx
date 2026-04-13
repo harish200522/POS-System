@@ -76,20 +76,30 @@ export default function ScannerModal({
       });
       readerRef.current = codeReader;
 
-      const devices = await BrowserMultiFormatReader.listVideoInputDevices();
+      // Use native Web API instead of ZXing's static method to prevent minification issues
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        throw new Error("Camera API not supported (HTTPS or localhost required)");
+      }
+
+      // Briefly request camera to ensure we get permission and accurate device labels
+      const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      tempStream.getTracks().forEach(track => track.stop());
+
+      const allDevices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = allDevices.filter(device => device.kind === "videoinput");
       
-      if (devices.length === 0) {
+      if (videoDevices.length === 0) {
          throw new Error("No camera devices found");
       }
 
       // Always prefer back/rear camera on mobile
       const backCamera =
-        devices.find(
+        videoDevices.find(
           (d) =>
             d.label.toLowerCase().includes("back") ||
             d.label.toLowerCase().includes("rear") ||
             d.label.toLowerCase().includes("environment")
-        ) || devices[devices.length - 1];
+        ) || videoDevices[videoDevices.length - 1];
 
       setIsLoading(false);
       setIsScanning(true);
