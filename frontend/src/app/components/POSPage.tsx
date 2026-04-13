@@ -17,6 +17,7 @@ import {
 } from "../../services/storage";
 import ScannerModal from "./ScannerModal";
 import QRCode from "react-qr-code";
+import { toast } from "sonner";
 
 interface Product {
   _id: string;
@@ -123,7 +124,7 @@ export default function POSPage({ onTabChange }: POSPageProps) {
           }
         }
         if (syncedCount > 0) {
-          showToast(`${syncedCount} offline sale(s) synced successfully`, "success");
+          toast.success(`${syncedCount} offline sale(s) synced successfully`);
         }
       }
       fetchProducts();
@@ -239,16 +240,30 @@ export default function POSPage({ onTabChange }: POSPageProps) {
   };
 
   // Barcode scanner search
-  const handleBarcodeSearch = async () => {
-    if (!searchQuery.trim()) return;
+  const handleBarcodeSearch = async (textToSearch?: string) => {
+    const target = (textToSearch || searchQuery).trim();
+    if (!target) return;
+
+    // Local search first (fastest, works offline)
+    const localProduct = products.find(p => p.barcode.toLowerCase() === target.toLowerCase());
+    if (localProduct) {
+      addToCart(localProduct);
+      setSearchQuery("");
+      toast.success(`Added ${localProduct.name} to cart`);
+      return;
+    }
+
+    // Fallback to API
     try {
-      const result = await api.getProductByBarcode(searchQuery.trim());
+      const result = await api.getProductByBarcode(target);
       if (result.success && result.data) {
         addToCart(result.data);
         setSearchQuery("");
+        toast.success(`Added ${result.data.name} to cart`);
       }
     } catch {
-      // Not found - no action needed, regular search will show results
+      toast.error("Product not found");
+      // Regular search filtering will continue naturally on the UI
     }
   };
 
@@ -661,14 +676,8 @@ export default function POSPage({ onTabChange }: POSPageProps) {
         onScan={(text) => {
            setSearchQuery(text);
            setIsScannerOpen(false);
-            // Delay slightly to let state update before barcode lookup
-            setTimeout(() => {
-              api.getProductByBarcode(text.trim()).then((res) => {
-                 if (res.success && res.data) {
-                    addToCart(res.data);
-                    setSearchQuery("");
-                 }
-              }).catch(() => {});
+           setTimeout(() => {
+              handleBarcodeSearch(text);
            }, 100);
         }} 
       />
