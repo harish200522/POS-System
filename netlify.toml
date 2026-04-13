@@ -3,6 +3,32 @@
   command = "npm install && npm run build"
   publish = "dist/"
 
+# Serve manifest.json with correct content type and no caching
+[[headers]]
+  for = "/manifest.json"
+  [headers.values]
+    Content-Type = "application/manifest+json"
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# Prevent service worker from being cached
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# Prevent workbox SW from being cached
+[[headers]]
+  for = "/workbox-*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# Cache icons for 1 year
+[[headers]]
+  for = "/icons/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# SPA fallback — all routes serve index.html
 [[redirects]]
   from = "/*"
   to = "/index.html"

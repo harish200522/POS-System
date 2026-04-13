@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { ShoppingCart, User, Lock, Eye, EyeOff, Zap, ShieldCheck, Loader2 } from "lucide-react";
 import { Button } from "./components/ui/button";
@@ -15,6 +15,28 @@ export default function App() {
   const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [currentPage, setCurrentPage] = useState("pos");
+
+  // PWA Install Prompt
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  const handleInstall = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === "accepted") {
+      console.log("[PWA] User accepted install prompt ✅");
+    }
+    setInstallPrompt(null);
+  };
 
   // Login form state
   const [username, setUsername] = useState("");
@@ -411,6 +433,18 @@ export default function App() {
           )}
         </motion.div>
       </div>
+
+      {/* PWA Install Button — shown when browser fires beforeinstallprompt */}
+      {installPrompt && (
+        <button
+          id="pwa-install-btn"
+          onClick={handleInstall}
+          className="fixed bottom-20 right-4 z-50 flex items-center gap-2 rounded-full bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white shadow-xl transition-all hover:bg-orange-600 active:scale-95"
+          style={{ boxShadow: "0 4px 24px rgba(249,115,22,0.45)" }}
+        >
+          📲 Install App
+        </button>
+      )}
     </div>
   );
 }

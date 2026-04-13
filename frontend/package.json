@@ -73,7 +73,9 @@
   "devDependencies": {
     "@tailwindcss/vite": "4.1.12",
     "@vitejs/plugin-react": "4.7.0",
+    "sharp": "^0.34.5",
     "tailwindcss": "4.1.12",
-    "vite": "6.3.5"
+    "vite": "6.3.5",
+    "vite-plugin-pwa": "^1.2.0"
   }
 }
