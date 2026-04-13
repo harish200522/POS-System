@@ -244,8 +244,23 @@ export default function POSPage({ onTabChange }: POSPageProps) {
     const target = (textToSearch || searchQuery).trim();
     if (!target) return;
 
+    const normTarget = target.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+
     // Local search first (fastest, works offline)
-    const localProduct = products.find(p => p.barcode.toLowerCase() === target.toLowerCase());
+    // 1. Try exact alphanumeric match
+    let localProduct = products.find(p => p.barcode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase() === normTarget);
+    
+    // 2. Map standard UPCA (12 digits) to EAN13 (13 digits with leading zero) or vice versa
+    if (!localProduct && /^\d+$/.test(normTarget)) {
+      if (normTarget.length === 12) {
+        const padded = "0" + normTarget;
+        localProduct = products.find(p => p.barcode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase() === padded);
+      } else if (normTarget.length === 13 && normTarget.startsWith("0")) {
+        const unpadded = normTarget.slice(1);
+        localProduct = products.find(p => p.barcode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase() === unpadded);
+      }
+    }
+
     if (localProduct) {
       addToCart(localProduct);
       setSearchQuery("");

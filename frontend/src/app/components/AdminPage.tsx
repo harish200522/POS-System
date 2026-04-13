@@ -14,7 +14,6 @@ import {
 import { api } from "../../services/api";
 import { useAuth } from "../../context/AuthContext";
 import { getLastSyncTimestamp } from "../../services/storage";
-import ScannerModal from "./ScannerModal";
 import QRCode from "react-qr-code";
 import { toast } from "sonner";
 import {
@@ -56,7 +55,6 @@ export default function AdminPage({ onTabChange }: AdminPageProps) {
 
   const [showMenu, setShowMenu] = useState(false);
   const [menuPage, setMenuPage] = useState<"main" | "settings" | "inventory">("main");
-  const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [lastSync, setLastSync] = useState<string | null>(getLastSyncTimestamp());
 
@@ -431,9 +429,6 @@ export default function AdminPage({ onTabChange }: AdminPageProps) {
                 <Label htmlFor="barcode" className="text-sm font-medium text-stone-700 mb-1.5 block">Barcode / QR</Label>
                 <div className="flex gap-2">
                    <Input id="barcode" value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="Leave blank to auto-generate" className="h-11 bg-white border-stone-300 focus:border-amber-700 focus:ring-amber-700/10 rounded-lg flex-1" />
-                   <Button variant="outline" className="h-11 px-3 border-stone-300" onClick={() => setIsScannerOpen(true)}>
-                     <Scan className="w-5 h-5" />
-                   </Button>
                 </div>
                 {barcode && (
                   <div className="p-4 mt-3 bg-stone-50 border border-stone-200 rounded-lg flex flex-col items-center">
@@ -470,18 +465,7 @@ export default function AdminPage({ onTabChange }: AdminPageProps) {
               </div>
               <div>
                 <Label htmlFor="category" className="text-sm font-medium text-stone-700 mb-1.5 block">Category</Label>
-                <Select value={category} onValueChange={setCategory}>
-                  <SelectTrigger className="h-11 bg-white border-stone-300 focus:border-amber-700 focus:ring-amber-700/10 rounded-lg">
-                    <SelectValue placeholder="Select category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="General">General</SelectItem>
-                    <SelectItem value="Cloth">Cloth</SelectItem>
-                    <SelectItem value="Biscuit">Biscuit</SelectItem>
-                    <SelectItem value="Stationery">Stationery</SelectItem>
-                    <SelectItem value="Beverages">Beverages</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Input id="category" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. General, Clothing, Biscuits..." className="h-11 bg-white border-stone-300 focus:border-amber-700 focus:ring-amber-700/10 rounded-lg" />
               </div>
               <div>
                 <Label htmlFor="price" className="text-sm font-medium text-stone-700 mb-1.5 block">Price</Label>
@@ -681,15 +665,6 @@ export default function AdminPage({ onTabChange }: AdminPageProps) {
           </div>
         </DialogContent>
       </Dialog>
-
-      <ScannerModal 
-        isOpen={isScannerOpen} 
-        onClose={() => setIsScannerOpen(false)} 
-        onScan={(text) => {
-           setBarcode(text);
-           setIsScannerOpen(false);
-        }} 
-      />
     </div>
   );
 }
