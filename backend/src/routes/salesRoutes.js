@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { query } from "express-validator";
 import { getSalesHistory, getSalesSummary } from "../controllers/billingController.js";
+import { exportSalesCsv, exportSalesPdf } from "../controllers/exportController.js";
 import { authenticate, requireRoles } from "../middlewares/authMiddleware.js";
 import { validateRequest } from "../middlewares/validateRequest.js";
 
@@ -20,6 +21,10 @@ router.get(
 	],
 	getSalesSummary
 );
+
+// ── Export routes (must be BEFORE the catch-all "/" route) ──
+router.get("/export/csv", requireRoles("admin", "cashier"), exportSalesCsv);
+router.get("/export/pdf", requireRoles("admin", "cashier"), exportSalesPdf);
 
 router.get(
 	"/",

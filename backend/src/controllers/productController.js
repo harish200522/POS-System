@@ -141,9 +141,11 @@ export const getProducts = asyncHandler(async (req, res) => {
     query.barcode = normalizeBarcodeValue(barcode);
   }
 
+  let sortCriteria = { updatedAt: -1 };
+
   if (search) {
-    const searchRegex = new RegExp(escapeRegex(String(search).trim()), "i");
-    query.$or = [{ name: searchRegex }, { barcode: searchRegex }];
+    query.$text = { $search: String(search).trim() };
+    sortCriteria = { score: { $meta: "textScore" } };
   }
 
   if (String(lowStock) === "true") {
@@ -154,8 +156,13 @@ export const getProducts = asyncHandler(async (req, res) => {
   const normalizedPage = Math.max(parseNumber(page, 1), 1);
   const skip = (normalizedPage - 1) * normalizedLimit;
 
+  let dbQuery = Product.find(query);
+  if (search) {
+    dbQuery = dbQuery.select({ score: { $meta: "textScore" } });
+  }
+
   const [products, total] = await Promise.all([
-    Product.find(query).sort({ updatedAt: -1 }).skip(skip).limit(normalizedLimit),
+    dbQuery.sort(sortCriteria).skip(skip).limit(normalizedLimit),
     Product.countDocuments(query),
   ]);
 

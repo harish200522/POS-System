@@ -45,16 +45,22 @@ export default function SalesPage({ onTabChange }: SalesPageProps) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
     if (onTabChange) onTabChange(tab);
   };
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [fromDate, toDate, paymentFilter, searchQuery, sortBy]);
+
   const fetchTransactions = useCallback(async () => {
     setLoading(true);
     try {
-      const queryParams: any = { limit: 100 }; // Get last 100 transactions for preview
+      const queryParams: any = { limit: 20, page: currentPage };
       if (fromDate) queryParams.from = new Date(fromDate).toISOString();
       if (toDate) queryParams.to = new Date(toDate).toISOString();
       if (paymentFilter !== "All") queryParams.paymentMethod = paymentFilter.toLowerCase();
@@ -62,13 +68,14 @@ export default function SalesPage({ onTabChange }: SalesPageProps) {
       const res = await api.getSalesHistory(queryParams);
       if (res.success) {
         setTransactions(res.data);
+        if (res.meta) setTotalPages(res.meta.pages);
       }
     } catch {
       // ignore
     } finally {
       setLoading(false);
     }
-  }, [fromDate, toDate, paymentFilter]);
+  }, [fromDate, toDate, paymentFilter, currentPage]);
 
   useEffect(() => {
     fetchTransactions();
@@ -82,6 +89,69 @@ export default function SalesPage({ onTabChange }: SalesPageProps) {
       window.removeEventListener("offline", handleOffline);
     };
   }, [fetchTransactions]);
+
+  const handlePrintReceipt = (transaction: Transaction) => {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Receipt - ${transaction.billNumber}</title>
+          <style>
+            body { 
+              font-family: monospace; 
+              padding: 20px; 
+              max-width: 300px; 
+              margin: auto; 
+              color: black;
+              background: white;
+            }
+            .header { text-align: center; margin-bottom: 20px; }
+            .header h2 { margin: 0; font-size: 1.2rem; }
+            .item { display: flex; justify-content: space-between; margin-bottom: 5px; }
+            .total { font-weight: bold; margin-top: 10px; border-top: 1px dashed black; padding-top: 10px; }
+            .footer { text-align: center; margin-top: 20px; font-size: 12px; }
+            
+            @media print {
+              body { visibility: visible; }
+              @page { margin: 0; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h2>CounterCraft POS</h2>
+            <p>Receipt: ${transaction.billNumber}</p>
+            <p>Date: ${new Date(transaction.createdAt).toLocaleString()}</p>
+            <p>Payment: ${transaction.paymentMethod.toUpperCase()}</p>
+          </div>
+          <div>
+            ${transaction.items.map(item => `
+              <div class="item">
+                <span>${item.name} (x${item.quantity})</span>
+                <span>Rs${Number(item.lineTotal).toFixed(2)}</span>
+              </div>
+            `).join("")}
+          </div>
+          <div class="item total">
+            <span>TOTAL</span>
+            <span>Rs${Number(transaction.total).toFixed(2)}</span>
+          </div>
+          <div class="footer">
+            <p>Served by: ${transaction.cashier}</p>
+            <p>Thank you for your business!</p>
+          </div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 250);
+  };
 
   const filteredTransactions = transactions
     .filter(t => {
@@ -222,6 +292,7 @@ export default function SalesPage({ onTabChange }: SalesPageProps) {
           <div className="flex items-center gap-2 px-1 mb-5">
             <div className="flex-1 h-0.5 bg-stone-200"></div>
             <span className="text-xs font-bold text-stone-500 uppercase tracking-wider">Transaction Records</span>
+            {loading && <Loader2 className="w-4 h-4 text-amber-500 animate-spin" />}
             <div className="flex-1 h-0.5 bg-stone-200"></div>
           </div>
           
@@ -292,7 +363,7 @@ export default function SalesPage({ onTabChange }: SalesPageProps) {
 
                     <div className="text-center pt-2 border-t border-dashed border-stone-300 flex flex-col gap-2">
                       <p className="text-xs text-stone-400 italic">Thank you for your business!</p>
-                      <Button variant="outline" size="sm" className="w-full text-xs h-8 border-stone-300">Print Receipt</Button>
+                      <Button variant="outline" size="sm" className="w-full text-xs h-8 border-stone-300" onClick={() => handlePrintReceipt(transaction)}>Print Receipt</Button>
                     </div>
                   </div>
 
@@ -301,6 +372,30 @@ export default function SalesPage({ onTabChange }: SalesPageProps) {
               );
             })}
           </div>
+
+          {totalPages > 1 && (
+            <div className="mt-8 flex justify-center items-center gap-4">
+              <Button 
+                variant="outline" 
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
+                disabled={currentPage === 1 || loading}
+                className="border-stone-300 text-stone-700 hover:bg-stone-100"
+              >
+                &larr; Previous
+              </Button>
+              <span className="text-sm font-medium text-stone-600">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button 
+                variant="outline" 
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
+                disabled={currentPage === totalPages || loading}
+                className="border-stone-300 text-stone-700 hover:bg-stone-100"
+              >
+                Next &rarr;
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 

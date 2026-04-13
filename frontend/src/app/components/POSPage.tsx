@@ -13,7 +13,7 @@ import { api } from "../../services/api";
 import { useAuth } from "../../context/AuthContext";
 import {
   getCachedProducts, setCachedProducts, getLastSyncTimestamp,
-  setLastSyncTimestamp, queuePendingSale,
+  setLastSyncTimestamp, queuePendingSale, getPendingSales, removePendingSale,
 } from "../../services/storage";
 import ScannerModal from "./ScannerModal";
 import QRCode from "react-qr-code";
@@ -57,7 +57,7 @@ export default function POSPage({ onTabChange }: POSPageProps) {
   const [summary, setSummary] = useState<any>(null);
   
   // Payment config
-  const [shopUpiId, setShopUpiId] = useState<string>(localStorage.getItem("pos_upi_id") || "");
+  const [shopUpiId, setShopUpiId] = useState<string>("");
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
@@ -105,11 +105,29 @@ export default function POSPage({ onTabChange }: POSPageProps) {
     api.getPaymentSettings().then(res => {
       if (res.success && res.data?.upiId) {
         setShopUpiId(res.data.upiId);
-        localStorage.setItem("pos_upi_id", res.data.upiId);
       }
     }).catch(() => {});
 
-    const handleOnline = () => { setIsOnline(true); fetchProducts(); };
+    const handleOnline = async () => {
+      setIsOnline(true);
+      const pending = getPendingSales();
+      if (pending.length > 0) {
+        let syncedCount = 0;
+        for (const sale of pending) {
+          try {
+            await api.processBilling(sale.payload);
+            removePendingSale(sale.id);
+            syncedCount++;
+          } catch (error) {
+            console.error("Failed to sync pending sale:", sale.id, error);
+          }
+        }
+        if (syncedCount > 0) {
+          showToast(`${syncedCount} offline sale(s) synced successfully`, "success");
+        }
+      }
+      fetchProducts();
+    };
     const handleOffline = () => setIsOnline(false);
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
@@ -643,10 +661,8 @@ export default function POSPage({ onTabChange }: POSPageProps) {
         onScan={(text) => {
            setSearchQuery(text);
            setIsScannerOpen(false);
-           // Delay slightly to let state setter queue up before search attempts mapped validation
-           setTimeout(() => {
-              const syntheticEvent = { key: "Enter" } as React.KeyboardEvent<HTMLInputElement>;
-              // direct fetch instead of needing event queue
+            // Delay slightly to let state update before barcode lookup
+            setTimeout(() => {
               api.getProductByBarcode(text.trim()).then((res) => {
                  if (res.success && res.data) {
                     addToCart(res.data);

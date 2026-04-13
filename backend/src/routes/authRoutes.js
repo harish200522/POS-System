@@ -39,6 +39,7 @@ const tenantRegistrationValidators = [
     .withMessage("ownerName must be 2-160 characters"),
   body("phone")
     .trim()
+    .customSanitizer(val => val.replace(/\s/g, ''))
     .matches(/^\+?[1-9]\d{7,14}$/)
     .withMessage("phone must be a valid international phone number"),
   body("email").trim().isEmail().withMessage("email must be valid").normalizeEmail(),

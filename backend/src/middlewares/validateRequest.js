@@ -8,13 +8,13 @@ export function validateRequest(req, res, next) {
   }
 
   const errors = result.array({ onlyFirstError: true }).map((entry) => ({
-    field: entry.param,
+    field: entry.path,
     message: entry.msg,
   }));
 
   return res.status(400).json({
     success: false,
     message: "Validation failed",
-    details: errors,
+    errors: errors,
   });
 }

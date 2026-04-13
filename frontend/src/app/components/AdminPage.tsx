@@ -16,6 +16,13 @@ import { useAuth } from "../../context/AuthContext";
 import { getLastSyncTimestamp } from "../../services/storage";
 import ScannerModal from "./ScannerModal";
 import QRCode from "react-qr-code";
+import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
 
 interface Product {
   _id: string;
@@ -41,6 +48,10 @@ interface AdminPageProps {
 
 export default function AdminPage({ onTabChange }: AdminPageProps) {
   const { user, logout } = useAuth();
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [resetTargetUser, setResetTargetUser] = useState<User | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [activeTab, setActiveTab] = useState("admin");
 
   const [showMenu, setShowMenu] = useState(false);
@@ -136,11 +147,9 @@ export default function AdminPage({ onTabChange }: AdminPageProps) {
       const res = await api.getPaymentSettings();
       if (res.success && res.data) {
         setUpiId(res.data.upiId || "");
-        if (res.data.upiId) localStorage.setItem("pos_upi_id", res.data.upiId);
       }
     } catch {
-      const saved = localStorage.getItem("pos_upi_id");
-      if (saved) setUpiId(saved);
+      // API handles error
     } finally {
       setLoadingPayment(false);
     }
@@ -226,7 +235,7 @@ export default function AdminPage({ onTabChange }: AdminPageProps) {
       }
       fetchInventory();
     } catch (err: any) {
-      alert("Failed to toggle product status: " + err.message);
+      toast.error("Failed to toggle product status: " + err.message);
     }
   };
 
@@ -236,7 +245,7 @@ export default function AdminPage({ onTabChange }: AdminPageProps) {
       await api.updateStock(prod._id, { quantity: amount, mode: "add" });
       fetchInventory();
     } catch (err: any) {
-      alert("Failed to add stock: " + err.message);
+      toast.error("Failed to add stock: " + err.message);
     } finally {
       setUpdatingStockId(null);
     }
@@ -249,36 +258,50 @@ export default function AdminPage({ onTabChange }: AdminPageProps) {
       await api.updateUserStatus(u.id, { isActive: !u.isActive });
       fetchUsers();
     } catch (err: any) {
-      alert("Failed to update user status: " + err.message);
+      toast.error("Failed to update user status: " + err.message);
     } finally {
       setIsUpdatingUser(null);
     }
   };
 
-  const handleResetPassword = async (u: User) => {
-    const newPwd = prompt("Enter new password for " + u.username + " (min 8 chars, letter+number):");
-    if (!newPwd) return;
+  const handleResetPassword = (u: User) => {
+    setResetTargetUser(u);
+    setNewPassword("");
+    setConfirmPassword("");
+    setIsResetModalOpen(true);
+  };
+
+  const submitResetPassword = async () => {
+    if (!resetTargetUser) return;
+    if (newPassword.length < 8) {
+      toast.error("Password must be at least 8 characters");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords do not match");
+      return;
+    }
     try {
-      await api.resetUserPassword(u.id, { newPassword: newPwd });
-      alert("Password reset successfully.");
+      await api.resetUserPassword(resetTargetUser.id, { newPassword: newPassword });
+      toast.success("Password reset successfully.");
+      setIsResetModalOpen(false);
     } catch (err: any) {
-      alert("Failed to reset password: " + err.message);
+      toast.error("Failed to reset password: " + err.message);
     }
   };
 
   // -- PAYMENT ACTIONS --
   const handleSavePaymentSettings = async () => {
     if (upiId && !upiId.includes("@")) {
-      alert("Invalid UPI ID: must include '@'");
+      toast.error("Invalid UPI ID: must include '@'");
       return;
     }
     setIsSavingPayment(true);
     try {
       await api.savePaymentSettings({ upiId });
-      localStorage.setItem("pos_upi_id", upiId);
-      alert("Payment settings saved!");
+      toast.success("Payment settings saved!");
     } catch (err: any) {
-      alert("Failed to save payment settings: " + err.message);
+      toast.error("Failed to save payment settings: " + err.message);
     } finally {
       setIsSavingPayment(false);
     }
@@ -634,6 +657,30 @@ export default function AdminPage({ onTabChange }: AdminPageProps) {
           </div>
         </div>
       </div>
+
+      {/* Reset Password Modal */}
+      <Dialog open={isResetModalOpen} onOpenChange={setIsResetModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <p className="text-sm text-stone-600">Enter new password for <strong>{resetTargetUser?.username}</strong></p>
+            <div className="space-y-2">
+              <Label>New Password</Label>
+              <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Confirm Password</Label>
+              <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+            </div>
+          </div>
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="outline" onClick={() => setIsResetModalOpen(false)}>Cancel</Button>
+            <Button className="bg-blue-600 hover:bg-blue-700 text-white" onClick={submitResetPassword}>Reset Password</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <ScannerModal 
         isOpen={isScannerOpen} 
