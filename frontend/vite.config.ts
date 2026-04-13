@@ -21,7 +21,7 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
         headers: {
-          Origin: 'https://stalwart-daifuku-d6ed88.netlify.app'
+          Origin: 'https://possystemapp.netlify.app'
         }
       },
     },
