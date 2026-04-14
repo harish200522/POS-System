@@ -35,7 +35,7 @@ interface POSPageProps {
 }
 
 export default function POSPage({ onTabChange }: POSPageProps) {
-  const { user, logout } = useAuth();
+  const { user, shop, logout } = useAuth();
   const [activeTab, setActiveTab] = useState("pos");
   const [searchQuery, setSearchQuery] = useState("");
   const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
