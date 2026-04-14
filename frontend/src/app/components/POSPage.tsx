@@ -329,7 +329,7 @@ export default function POSPage({ onTabChange }: POSPageProps) {
     <>
       <div className="hidden print:block bg-white text-black min-h-screen w-full font-mono text-sm leading-tight p-4">
         {completedBill && (
-          <div className="max-w-[80mm] pl-4">
+          <div id="print-receipt-content" className="max-w-[80mm] pl-4">
             <div className="text-center font-bold mb-4">
               <h1 className="text-2xl print:text-black">{shop?.name || 'CounterCraft POS'}</h1>
               <p className="text-sm font-normal print:text-black">Retail Billing Suite</p>
@@ -765,12 +765,19 @@ export default function POSPage({ onTabChange }: POSPageProps) {
                             try {
                               if (Capacitor.isNativePlatform()) {
                                 const { Printer } = await import("@capgo/capacitor-printer");
-                                await Printer.printWebView();
+                                const printContent = document.getElementById("print-receipt-content");
+                                if (printContent) {
+                                  const html = `<html><head><style>body { font-family: monospace; font-size: 14px; color: black; margin: 0; padding: 10px; } .text-center { text-align: center; } .font-bold { font-weight: bold; } .text-2xl { font-size: 24px; margin-bottom: 5px; } .text-sm { font-size: 14px; } .mb-4 { margin-bottom: 16px; } .mb-2 { margin-bottom: 8px; } .pb-2 { padding-bottom: 8px; } .border-b-2 { border-bottom: 2px dashed black; } .border-b { border-bottom: 1px solid black; } .flex { display: flex; } .justify-between { justify-content: space-between; } .max-w-\\[80mm\\] { width: 80mm; max-width: 100%; } p { margin: 2px 0; } .font-bold.text-lg { font-size: 18px; }</style></head><body>${printContent.innerHTML}</body></html>`;
+                                  await Printer.printHtml({ name: 'Receipt', html });
+                                } else {
+                                  await Printer.printWebView();
+                                }
                               } else {
                                 window.print();
                               }
-                            } catch (err) {
+                            } catch (err: any) {
                               console.error("Print error:", err);
+                              alert("Printer Error: " + (err.message || 'Unknown error'));
                               toast.error("Failed to open print dialog");
                             }
                           }}
