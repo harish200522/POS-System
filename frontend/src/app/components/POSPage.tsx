@@ -18,7 +18,7 @@ import {
 import ScannerModal from "./ScannerModal";
 import QRCode from "react-qr-code";
 import { toast } from "sonner";
-import { Printer } from "@capgo/capacitor-printer";
+import { Capacitor } from "@capacitor/core";
 
 interface Product {
   _id: string;
@@ -763,7 +763,12 @@ export default function POSPage({ onTabChange }: POSPageProps) {
                         <Button
                           onClick={async () => {
                             try {
-                              await Printer.printWebView();
+                              if (Capacitor.isNativePlatform()) {
+                                const { Printer } = await import("@capgo/capacitor-printer");
+                                await Printer.printWebView();
+                              } else {
+                                window.print();
+                              }
                             } catch (err) {
                               console.error("Print error:", err);
                               toast.error("Failed to open print dialog");
