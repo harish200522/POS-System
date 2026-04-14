@@ -386,11 +386,7 @@ export default function AdminPage({ onTabChange }: AdminPageProps) {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <Button onClick={() => { setEditingProductId(null); setProductName(""); setBarcode(""); setPrice(""); setStock(""); setCategory("General"); setProductMessage(null); }} className="h-11 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white rounded-xl text-sm font-bold shadow-md active:scale-95 transition-all">
-                <Plus className="w-4 h-4 mr-2" />
-                New Product
-              </Button>
+            <div className="grid grid-cols-1 gap-3">
               <Button onClick={fetchInventory} disabled={loadingInventory} className="h-11 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-xl text-sm font-bold shadow-md active:scale-95 transition-all">
                 <RefreshCw className={`w-4 h-4 mr-2 ${loadingInventory ? 'animate-spin' : ''}`} />
                 Sync Data
