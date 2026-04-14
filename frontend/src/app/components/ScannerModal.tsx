@@ -6,6 +6,8 @@ import {
   BarcodeFormat,
   DecodeHintType,
 } from "@zxing/library";
+import { BarcodeScanner } from "@capacitor-mlkit/barcode-scanning";
+import { Capacitor } from "@capacitor/core";
 
 interface ScannerModalProps {
   isOpen: boolean;
@@ -27,6 +29,8 @@ export default function ScannerModal({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const isNative = Capacitor.isNativePlatform();
+
   const playBeep = () => {
     try {
       const ctx = new AudioContext();
@@ -43,26 +47,65 @@ export default function ScannerModal({
     } catch (e) {}
   };
 
-  const stopScanner = useCallback(() => {
+  const stopWebScanner = useCallback(() => {
     if (scanTimeoutRef.current) {
       clearTimeout(scanTimeoutRef.current);
       scanTimeoutRef.current = null;
     }
     if (readerRef.current) {
       try {
-        readerRef.current.reset(); // Fully stop decoding process and device feeds
+        readerRef.current.reset();
       } catch (e) {} finally {
         readerRef.current = null;
       }
     }
-    hasScannedRef.current = true; // prevent accidental async resolves
     setIsScanning(false);
     setIsLoading(false);
   }, []);
 
-  const startScanner = useCallback(async () => {
+  const closeScanner = useCallback(() => {
+    hasScannedRef.current = true;
+    if (!isNative) {
+      stopWebScanner();
+    }
+    onClose();
+  }, [isNative, stopWebScanner, onClose]);
+
+  const startNativeMLKitScanner = useCallback(async () => {
     try {
-      hasScannedRef.current = false;
+      setError(null);
+      setIsScanning(true);
+
+      const permissionState = await BarcodeScanner.checkPermissions();
+      if (permissionState.camera !== 'granted') {
+        const requested = await BarcodeScanner.requestPermissions();
+        if (requested.camera !== 'granted') {
+          throw new Error("Camera permission denied in Android settings.");
+        }
+      }
+
+      const { barcodes } = await BarcodeScanner.scan();
+
+      if (barcodes && barcodes.length > 0) {
+        const resultText = barcodes[0].rawValue;
+        if (hasScannedRef.current) return;
+        hasScannedRef.current = true;
+        playBeep();
+        if (navigator.vibrate) navigator.vibrate(150);
+        onScan(resultText);
+        closeScanner();
+      } else {
+        // Cancelled
+        setIsScanning(false);
+      }
+    } catch (err: any) {
+      setIsScanning(false);
+      setError(err.message || "Failed to launch native ML Kit scanner.");
+    }
+  }, [onScan, closeScanner]);
+
+  const startWebScanner = useCallback(async () => {
+    try {
       setError(null);
       setIsLoading(true);
 
@@ -75,7 +118,6 @@ export default function ScannerModal({
       ]);
       hints.set(DecodeHintType.TRY_HARDER, true);
 
-      // Decreased timeout delay to 50ms for extremely fast continuous decoding
       const codeReader = new BrowserMultiFormatReader(hints, 50);
       readerRef.current = codeReader;
 
@@ -83,7 +125,7 @@ export default function ScannerModal({
         throw new Error("Camera API not supported (HTTPS or localhost required)");
       }
 
-      // Insist on the environment camera contextually
+      // Briefly request camera to prompt permission before enumerating
       const tempStream = await navigator.mediaDevices.getUserMedia({ 
         video: { facingMode: "environment" } 
       });
@@ -109,10 +151,10 @@ export default function ScannerModal({
 
       scanTimeoutRef.current = setTimeout(() => {
         if (!hasScannedRef.current) {
-          stopScanner();
+          stopWebScanner();
           setError("Scan timeout. Try again");
         }
-      }, 10000); // 10-second scanner lock limit 
+      }, 10000);
 
       await codeReader.decodeFromVideoDevice(
         backCamera.deviceId,
@@ -125,8 +167,7 @@ export default function ScannerModal({
             playBeep();
             if (navigator.vibrate) navigator.vibrate(150);
             
-            // Output parsing & immediately cease feed
-            stopScanner();
+            stopWebScanner();
             onScan(result.getText());
             onClose();
           }
@@ -140,30 +181,43 @@ export default function ScannerModal({
       setIsLoading(false);
       setIsScanning(false);
       if (err.name === "NotAllowedError" || err.message?.includes("Permission denied")) {
-        setError("Camera permission denied. Please allow access in your browser settings.");
-      } else if (err.name === "NotFoundError" || err.message?.includes("No camera")) {
-        setError("No camera found on this device.");
-      } else if (err.name === "NotReadableError") {
-        setError("Camera is already in use by another application.");
+        setError("Camera permission denied. Please allow access in browser settings.");
       } else {
-        setError(err.message || "Camera access failed or device unsupported.");
+        setError(err.message || "Camera access failed.");
       }
     }
-  }, [onClose, onScan, stopScanner]);
+  }, [onClose, onScan, stopWebScanner]);
 
   useEffect(() => {
     if (isOpen) {
-      const t = setTimeout(startScanner, 200);
-      return () => {
-        clearTimeout(t);
-        stopScanner();
-      };
+      hasScannedRef.current = false;
+      if (isNative) {
+        // Native ML Kit
+        startNativeMLKitScanner();
+      } else {
+        // Web Fallback
+        const t = setTimeout(startWebScanner, 200);
+        return () => {
+          clearTimeout(t);
+          stopWebScanner();
+        };
+      }
+    } else {
+      if (!isNative) {
+        stopWebScanner();
+      }
+      setIsScanning(false);
+      setIsLoading(false);
     }
-  }, [isOpen, startScanner, stopScanner]);
+  }, [isOpen, isNative, startNativeMLKitScanner, startWebScanner, stopWebScanner]);
 
   const handleRetry = () => {
-    stopScanner();
-    setTimeout(startScanner, 200);
+    if (isNative) {
+      startNativeMLKitScanner();
+    } else {
+      stopWebScanner();
+      setTimeout(startWebScanner, 200);
+    }
   };
 
   if (!isOpen) return null;
@@ -172,10 +226,7 @@ export default function ScannerModal({
     <>
       <div
         className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm"
-        onClick={() => {
-          stopScanner();
-          onClose();
-        }}
+        onClick={closeScanner}
       />
 
       <div className="fixed bottom-0 left-0 right-0 z-[70] bg-white rounded-t-3xl max-h-[70vh] flex flex-col shadow-[0_-15px_60px_-15px_rgba(0,0,0,0.3)]">
@@ -187,76 +238,107 @@ export default function ScannerModal({
               <Camera size={18} className="text-blue-600" />
             </div>
             <span className="font-bold text-gray-800 text-sm tracking-wide">
-              Scan Barcode / QR
+              {isNative ? "Scan (ML Kit)" : "Scan (Web Fallback)"}
             </span>
           </div>
           <button
-            onClick={() => {
-              stopScanner();
-              onClose();
-            }}
+            onClick={closeScanner}
             className="p-2 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors"
           >
             <X size={16} className="text-gray-600" />
           </button>
         </div>
 
-        <div
-          className="relative mx-5 rounded-2xl overflow-hidden bg-black mt-4 shadow-inner"
-          style={{ height: "260px" }}
-        >
-          <video
-            ref={videoRef}
-            className="w-full h-full object-cover"
-            muted
-            playsInline
-          />
-          {isScanning && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/10">
-              <div className="relative w-56 h-36">
-                <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-emerald-400 rounded-tl-xl" />
-                <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-emerald-400 rounded-tr-xl" />
-                <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-emerald-400 rounded-bl-xl" />
-                <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-emerald-400 rounded-br-xl" />
-                <div className="absolute left-0 right-0 h-0.5 bg-emerald-400 animate-scan-line shadow-[0_0_8px_2px_rgba(52,211,153,0.6)]" />
+        {/* WEB SCANNER UI */}
+        {!isNative && (
+          <div
+            className="relative mx-5 rounded-2xl overflow-hidden bg-black mt-4 shadow-inner"
+            style={{ height: "260px" }}
+          >
+            <video
+              ref={videoRef}
+              className="w-full h-full object-cover"
+              muted
+              playsInline
+            />
+            {isScanning && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/10">
+                <div className="relative w-56 h-36">
+                  <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-emerald-400 rounded-tl-xl" />
+                  <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-emerald-400 rounded-tr-xl" />
+                  <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-emerald-400 rounded-bl-xl" />
+                  <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-emerald-400 rounded-br-xl" />
+                  <div className="absolute left-0 right-0 h-0.5 bg-emerald-400 animate-scan-line" />
+                </div>
               </div>
-            </div>
-          )}
-          {isLoading && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm">
-              <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-3" />
-              <span className="text-white text-sm font-medium tracking-wide">Connecting Camera...</span>
-            </div>
-          )}
-          {error && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/95 px-6 backdrop-blur-md">
-              <div className="text-red-400 text-3xl mb-3">⚠️</div>
-              <p className="text-white text-sm text-center mb-4 font-medium leading-relaxed">{error}</p>
-              <button
-                onClick={handleRetry}
-                className="bg-blue-600 hover:bg-blue-700 active:scale-95 transition-all text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-lg"
-              >
-                Retry Scanner
-              </button>
-            </div>
-          )}
-        </div>
+            )}
+            {isLoading && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm">
+                <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-3" />
+                <span className="text-white text-sm font-medium tracking-wide">Connecting Camera...</span>
+              </div>
+            )}
+            {error && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/95 px-6 backdrop-blur-md z-10">
+                <div className="text-red-400 text-3xl mb-3">⚠️</div>
+                <p className="text-white text-sm text-center mb-4 font-medium leading-relaxed">{error}</p>
+                <button
+                  onClick={handleRetry}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-lg"
+                >
+                  Retry Scanner
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ML KIT NATIVE UI MODAL BODY */}
+        {isNative && (
+          <div className="px-5 py-6 flex flex-col items-center justify-center">
+            {error ? (
+              <div className="bg-red-50 text-red-600 p-4 rounded-xl text-sm font-medium text-center w-full mb-4">
+                {error}
+              </div>
+            ) : (
+              <div className="text-center mb-6">
+                <p className="text-emerald-600 text-sm font-bold mb-1">
+                  Using ultra-fast ML Kit native scanner!
+                </p>
+                <p className="text-gray-400 text-xs mt-2">
+                  The scanner opened in full-screen on your device.
+                </p>
+              </div>
+            )}
+
+            <button
+              onClick={handleRetry}
+              disabled={isScanning}
+              className={`w-full py-3.5 rounded-xl font-bold text-white transition-all shadow-md ${
+                isScanning 
+                  ? "bg-emerald-400 cursor-wait opacity-80" 
+                  : "bg-emerald-500 hover:bg-emerald-600 active:scale-[0.98]"
+              }`}
+            >
+              {isScanning ? "Scanner active..." : "Re-open Scanner"}
+            </button>
+          </div>
+        )}
 
         <p className="text-center text-xs font-medium text-gray-500 mt-4 mb-2 px-6">
-          Align any QR or Barcode inside the frame to add dynamically
+          Align any QR or Barcode inside the frame, or type it manually:
         </p>
 
         <div className="px-5 pb-8 pt-2">
           <input
             type="text"
             inputMode="numeric"
-            placeholder="Or type barcode manually & hit enter..."
-            className="w-full px-4 py-3.5 text-sm font-medium border-2 border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-50 transition-all shadow-sm"
+            placeholder="Type barcode & hit enter..."
+            className="w-full px-4 py-3.5 text-sm font-medium border-2 border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:border-blue-500"
             onKeyDown={(e) => {
               if (e.key === "Enter" && e.currentTarget.value.trim()) {
                 onScan(e.currentTarget.value.trim());
-                stopScanner();
-                onClose();
+                closeScanner();
               }
             }}
           />

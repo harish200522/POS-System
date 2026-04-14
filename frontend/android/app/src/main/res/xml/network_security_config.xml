@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <!-- The Capacitor app runs local web server via http://localhost -->
+    </domain-config>
+    <!-- As a fallback, allow all cleartext just in case local WebView has issues -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

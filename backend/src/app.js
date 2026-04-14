@@ -86,8 +86,12 @@ app.use(
       }
 
       const normalizedOrigin = String(origin).trim().replace(/\/+$/, "");
-
-      if (env.clientOrigins.includes(normalizedOrigin)) {
+      
+      const capacitorOrigins = ["http://localhost", "capacitor://localhost"];
+      if (
+        capacitorOrigins.includes(normalizedOrigin) || 
+        env.clientOrigins.includes(normalizedOrigin)
+      ) {
         return callback(null, true);
       }
 
