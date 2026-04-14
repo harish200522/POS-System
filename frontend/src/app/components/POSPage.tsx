@@ -18,6 +18,7 @@ import {
 import ScannerModal from "./ScannerModal";
 import QRCode from "react-qr-code";
 import { toast } from "sonner";
+import { Printer } from "@capgo/capacitor-printer";
 
 interface Product {
   _id: string;
@@ -44,6 +45,8 @@ export default function POSPage({ onTabChange }: POSPageProps) {
   const [discount, setDiscount] = useState("0");
   const [paidAmount, setPaidAmount] = useState("0");
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [completedBill, setCompletedBill] = useState<any>(null);
 
   // Data state
   const [products, setProducts] = useState<Product[]>([]);
@@ -197,6 +200,8 @@ export default function POSPage({ onTabChange }: POSPageProps) {
     setShowCheckout(false);
     setBillingError(null);
     setBillingSuccess(null);
+    setCompletedBill(null);
+    setCustomerPhone("");
   };
 
   const handleProcessBilling = async () => {
@@ -218,20 +223,31 @@ export default function POSPage({ onTabChange }: POSPageProps) {
     };
 
     try {
+      let generatedBillRef = "OfflineSync";
       if (!isOnline) {
         queuePendingSale(billingPayload);
         setBillingSuccess("Sale saved offline. It will sync when you're back online.");
       } else {
         const result = await api.processBilling(billingPayload);
         if (result.success) {
-          setBillingSuccess(`Bill ${result.data?.billNumber || ""} created successfully!`);
+          generatedBillRef = result.data?.billNumber || "BIL-" + Date.now().toString().slice(-4);
+          setBillingSuccess(`Bill ${generatedBillRef} created successfully!`);
         }
       }
-      setTimeout(() => {
-        handleClearCart();
-        fetchProducts();
-        fetchSummary();
-      }, 1500);
+      
+      setCompletedBill({
+        billNumber: generatedBillRef,
+        date: new Date().toLocaleDateString(),
+        time: new Date().toLocaleTimeString(),
+        items: [...cart],
+        subtotal,
+        tax: taxAmount,
+        discount: discountAmount,
+        total: totalAmount,
+        paymentMethod
+      });
+      fetchProducts();
+      fetchSummary();
     } catch (err: any) {
       setBillingError(err.message || "Billing failed");
     } finally {
@@ -282,8 +298,75 @@ export default function POSPage({ onTabChange }: POSPageProps) {
     }
   };
 
+  const handleWhatsAppShare = () => {
+    if (!customerPhone || customerPhone.length < 10) {
+      toast.error("Please enter a valid phone number");
+      return;
+    }
+    const b = completedBill;
+    if (!b) return;
+
+    let text = `🧾 *${shop?.name || 'CounterCraft'} Receipt* 🧾\n`;
+    text += `Date: ${b.date} ${b.time}\n`;
+    text += `Bill No: ${b.billNumber}\n`;
+    text += `---------------------------\n`;
+    b.items.forEach((i: any) => {
+      text += `${i.quantity}x ${i.product.name} - ₹${i.product.price * i.quantity}\n`;
+    });
+    text += `---------------------------\n`;
+    text += `Subtotal: ₹${b.subtotal}\n`;
+    if (b.tax > 0) text += `Tax: ₹${b.tax}\n`;
+    if (b.discount > 0) text += `Discount: ₹${b.discount}\n`;
+    text += `*Total Paid: ₹${b.total}*\n`;
+    text += `Thank you for shopping!`;
+
+    let phoneStr = customerPhone.replace(/\D/g, "");
+    if (phoneStr.length === 10) phoneStr = "91" + phoneStr;
+    window.open(`https://wa.me/${phoneStr}?text=${encodeURIComponent(text)}`, "_blank");
+  };
+
   return (
-    <div className="min-h-screen bg-stone-50 relative overflow-hidden">
+    <>
+      <div className="hidden print:block bg-white text-black min-h-screen w-full font-mono text-sm leading-tight p-4">
+        {completedBill && (
+          <div className="max-w-[80mm] pl-4">
+            <div className="text-center font-bold mb-4">
+              <h1 className="text-2xl print:text-black">{shop?.name || 'CounterCraft POS'}</h1>
+              <p className="text-sm font-normal print:text-black">Retail Billing Suite</p>
+            </div>
+            <div className="border-b-2 border-black border-dashed pb-2 mb-2">
+              <p className="print:text-black">Date: {completedBill.date} {completedBill.time}</p>
+              <p className="print:text-black">Bill No: {completedBill.billNumber}</p>
+              <p className="print:text-black">Method: {completedBill.paymentMethod.toUpperCase()}</p>
+            </div>
+            <div className="mb-2">
+              <div className="flex justify-between font-bold border-b border-black pb-1 mb-1 print:text-black">
+                <span>Item</span>
+                <span>Amount</span>
+              </div>
+              {completedBill.items.map((i: any) => (
+                <div key={i.product._id} className="flex justify-between mb-1 print:text-black">
+                  <span>{i.quantity}x {i.product.name}</span>
+                  <span>{i.product.price * i.quantity}</span>
+                </div>
+              ))}
+            </div>
+            <div className="border-t-2 border-black border-dashed pt-2">
+              <div className="flex justify-between print:text-black"><span>Subtotal:</span><span>{completedBill.subtotal}</span></div>
+              {completedBill.tax > 0 && <div className="flex justify-between print:text-black"><span>Tax:</span><span>{completedBill.tax}</span></div>}
+              {completedBill.discount > 0 && <div className="flex justify-between print:text-black"><span>Discount:</span><span>{completedBill.discount}</span></div>}
+              <div className="flex justify-between font-bold mt-2 text-lg print:text-black">
+                <span>TOTAL:</span><span>₹{completedBill.total}</span>
+              </div>
+            </div>
+            <div className="text-center mt-6">
+              <p className="font-bold text-lg print:text-black">Thank You!</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+    <div className="min-h-screen bg-stone-50 relative overflow-hidden print:hidden">
       <div className="absolute inset-0">
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#8080800a_1px,transparent_1px),linear-gradient(to_bottom,#8080800a_1px,transparent_1px)] bg-[size:24px_24px]"></div>
       </div>
@@ -646,17 +729,60 @@ export default function POSPage({ onTabChange }: POSPageProps) {
                     </div>
                   </div>
 
-                  <Button
-                    onClick={handleProcessBilling}
-                    disabled={billingLoading || !!billingSuccess}
-                    className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm rounded-lg"
-                  >
-                    {billingLoading ? (
-                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing...</>
-                    ) : (
-                      "Proceed to Payment"
-                    )}
-                  </Button>
+                  {!completedBill ? (
+                    <Button
+                      onClick={handleProcessBilling}
+                      disabled={billingLoading}
+                      className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm rounded-lg"
+                    >
+                      {billingLoading ? (
+                        <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing...</>
+                      ) : (
+                        "Proceed to Payment"
+                      )}
+                    </Button>
+                  ) : (
+                    <div className="space-y-4">
+                      {/* Whatsapp Section */}
+                      <div className="bg-stone-50 p-4 rounded-xl border border-stone-200 shadow-sm">
+                        <label className="text-sm font-semibold text-stone-800 mb-2 block">Share E-Receipt</label>
+                        <div className="flex gap-2">
+                          <Input 
+                            placeholder="WhatsApp Number (e.g. 9876543210)" 
+                            value={customerPhone}
+                            onChange={(e) => setCustomerPhone(e.target.value)}
+                            className="bg-white"
+                          />
+                          <Button onClick={handleWhatsAppShare} className="bg-green-600 hover:bg-green-700 text-white font-bold px-4 shrink-0 transition-transform active:scale-95">
+                            Send
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <Button
+                          onClick={async () => {
+                            try {
+                              await Printer.printWebView();
+                            } catch (err) {
+                              console.error("Print error:", err);
+                              toast.error("Failed to open print dialog");
+                            }
+                          }}
+                          variant="outline"
+                          className="h-12 border-2 border-stone-300 text-stone-800 hover:bg-stone-50 font-bold w-full transition-transform active:scale-95"
+                        >
+                          🖨️ Print
+                        </Button>
+                        <Button
+                          onClick={handleClearCart}
+                          className="h-12 bg-blue-600 hover:bg-blue-700 text-white font-bold w-full transition-transform active:scale-95"
+                        >
+                          ✅ New Sale
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </motion.div>
@@ -697,5 +823,6 @@ export default function POSPage({ onTabChange }: POSPageProps) {
         }} 
       />
     </div>
+    </>
   );
 }

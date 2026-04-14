@@ -7,3 +7,12 @@ project(':capacitor-mlkit-barcode-scanning').projectDir = new File('../node_modu
 
 include ':capacitor-camera'
 project(':capacitor-camera').projectDir = new File('../node_modules/@capacitor/camera/android')
+
+include ':capacitor-filesystem'
+project(':capacitor-filesystem').projectDir = new File('../node_modules/@capacitor/filesystem/android')
+
+include ':capacitor-share'
+project(':capacitor-share').projectDir = new File('../node_modules/@capacitor/share/android')
+
+include ':capgo-capacitor-printer'
+project(':capgo-capacitor-printer').projectDir = new File('../node_modules/@capgo/capacitor-printer/android')

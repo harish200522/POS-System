@@ -117,14 +117,21 @@ export async function downloadFile(path: string, filename: string, query?: Recor
        }
     }
 
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = finalFileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
+    // Convert Blob to Base64
+    const blobToBase64 = (b: Blob): Promise<string> => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(b);
+      });
+    };
+    const base64Data = await blobToBase64(blob);
+
+    // Call dynamic import to avoid circular dependencies or weird bundling issues upfront
+    const { downloadNativeOrWeb } = await import('../utils/nativeDownload');
+    await downloadNativeOrWeb(base64Data, finalFileName, blob.type);
+
   } catch (error: any) {
     alert("Export failed: " + error.message);
   }

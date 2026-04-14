@@ -363,7 +363,6 @@ export default function SalesPage({ onTabChange }: SalesPageProps) {
 
                     <div className="text-center pt-2 border-t border-dashed border-stone-300 flex flex-col gap-2">
                       <p className="text-xs text-stone-400 italic">Thank you for your business!</p>
-                      <Button variant="outline" size="sm" className="w-full text-xs h-8 border-stone-300" onClick={() => handlePrintReceipt(transaction)}>Print Receipt</Button>
                     </div>
                   </div>
 
